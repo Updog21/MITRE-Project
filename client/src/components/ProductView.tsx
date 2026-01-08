@@ -353,6 +353,32 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                             </div>
                           </div>
 
+                          {dcRefs.length > 0 && (
+                            <div>
+                              <h4 className="text-sm font-medium text-foreground mb-3">Mutable Elements</h4>
+                              <div className="border border-border rounded-md overflow-hidden">
+                                <table className="w-full text-sm">
+                                  <thead className="bg-muted/50">
+                                    <tr>
+                                      <th className="text-left px-3 py-2 font-medium text-muted-foreground w-48">Field</th>
+                                      <th className="text-left px-3 py-2 font-medium text-muted-foreground">Description</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-border">
+                                    {Array.from(new Map(
+                                      dcRefs.flatMap(dc => dc?.mutableElements || []).map(me => [me.name, me])
+                                    ).values()).map(me => (
+                                      <tr key={me.name}>
+                                        <td className="px-3 py-2 font-mono text-primary">{me.name}</td>
+                                        <td className="px-3 py-2 text-foreground">{me.description}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+
                           {analytic.pseudocode && (
                             <div>
                               <h4 className="text-sm font-medium text-foreground mb-2 flex items-center gap-1.5">
