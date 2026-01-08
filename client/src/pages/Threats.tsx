@@ -1,8 +1,32 @@
 import { Sidebar } from '@/components/Sidebar';
-import { threatGroups, techniques } from '@/lib/mockData';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { techniques } from '@/lib/v18Data';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Target, AlertTriangle, Skull } from 'lucide-react';
+import { Target, AlertTriangle, Skull, Shield } from 'lucide-react';
+
+const threatGroups = [
+  {
+    id: 'G0016',
+    name: 'APT29',
+    aliases: ['Cozy Bear', 'The Dukes', 'YTTRIUM'],
+    description: 'APT29 is attributed to Russia\'s SVR. Known for sophisticated supply chain attacks and cloud-based intrusions.',
+    country: 'Russia',
+  },
+  {
+    id: 'G0007',
+    name: 'APT28',
+    aliases: ['Fancy Bear', 'Sofacy', 'STRONTIUM'],
+    description: 'APT28 is attributed to Russia\'s GRU. Known for targeting government, military, and media organizations.',
+    country: 'Russia',
+  },
+  {
+    id: 'G0032',
+    name: 'Lazarus',
+    aliases: ['Hidden Cobra', 'ZINC', 'Guardians of Peace'],
+    description: 'Lazarus Group is attributed to North Korea. Known for financial crimes and destructive attacks.',
+    country: 'North Korea',
+  },
+];
 
 export default function Threats() {
   return (
@@ -15,15 +39,13 @@ export default function Threats() {
             <header>
               <h1 className="text-2xl font-bold text-foreground tracking-tight">Threat Groups</h1>
               <p className="text-muted-foreground text-sm mt-1">
-                Track adversary techniques and map defenses against known threat actors
+                Understand adversary TTPs and map your defenses against known threat actors
               </p>
             </header>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
               {threatGroups.map((group) => {
-                const groupTechniques = techniques.filter(t => 
-                  t.usedByThreatGroups.includes(group.name)
-                );
+                const groupTechniques = techniques.filter(t => t.usedByGroups.includes(group.name));
                 
                 return (
                   <Card 
@@ -43,7 +65,7 @@ export default function Threats() {
                           </div>
                         </div>
                         <Badge variant="destructive" className="text-xs">
-                          APT
+                          {group.country}
                         </Badge>
                       </div>
                     </CardHeader>
@@ -64,7 +86,7 @@ export default function Threats() {
                         <div className="flex items-center justify-between text-sm pt-2 border-t border-border">
                           <div className="flex items-center gap-2">
                             <Target className="w-4 h-4 text-red-400" />
-                            <span className="text-muted-foreground">Techniques</span>
+                            <span className="text-muted-foreground">Known Techniques</span>
                           </div>
                           <span className="font-mono text-red-400 font-bold">{groupTechniques.length}</span>
                         </div>
@@ -92,6 +114,62 @@ export default function Threats() {
                 );
               })}
             </div>
+
+            <Card className="bg-card/50 backdrop-blur border-border">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Shield className="w-5 h-5 text-primary" />
+                  Technique Coverage by Threat Group
+                </CardTitle>
+                <CardDescription>
+                  See which techniques are used by each threat group and plan your defense accordingly
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border">
+                        <th className="text-left py-2 px-3 text-muted-foreground font-medium">Technique</th>
+                        <th className="text-left py-2 px-3 text-muted-foreground font-medium">Name</th>
+                        <th className="text-center py-2 px-3 text-muted-foreground font-medium">APT29</th>
+                        <th className="text-center py-2 px-3 text-muted-foreground font-medium">APT28</th>
+                        <th className="text-center py-2 px-3 text-muted-foreground font-medium">Lazarus</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {techniques.map((technique) => (
+                        <tr key={technique.id} className="border-b border-border/50 hover:bg-muted/20">
+                          <td className="py-2 px-3 font-mono text-primary text-xs">{technique.id}</td>
+                          <td className="py-2 px-3 text-foreground">{technique.name}</td>
+                          <td className="py-2 px-3 text-center">
+                            {technique.usedByGroups.includes('APT29') ? (
+                              <Badge variant="destructive" className="text-[10px]">Used</Badge>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 text-center">
+                            {technique.usedByGroups.includes('APT28') ? (
+                              <Badge variant="destructive" className="text-[10px]">Used</Badge>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 text-center">
+                            {technique.usedByGroups.includes('Lazarus') ? (
+                              <Badge variant="destructive" className="text-[10px]">Used</Badge>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </div>
       </main>
