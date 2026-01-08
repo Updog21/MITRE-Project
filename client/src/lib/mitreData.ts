@@ -7,6 +7,7 @@ export interface MutableElement {
 export interface PlatformMapping {
   platform: 'Windows' | 'Linux' | 'macOS' | 'ESXi' | 'Azure AD' | 'Network';
   eventSource: string;
+  logSourceName: string;
   eventId?: string;
   logChannel?: string;
   notes?: string;
@@ -75,10 +76,10 @@ export const dataComponents: Record<string, DataComponentRef> = {
       { name: 'user', description: 'User context of process', fieldPath: 'user.name' },
     ],
     platforms: [
-      { platform: 'Windows', eventSource: 'Sysmon', eventId: '3', logChannel: 'Microsoft-Windows-Sysmon/Operational', notes: 'Network connection detected' },
-      { platform: 'Windows', eventSource: 'Windows Firewall', eventId: '5156', logChannel: 'Security', notes: 'Windows Filtering Platform permitted connection' },
-      { platform: 'Linux', eventSource: 'Auditd', eventId: 'SYSCALL connect', logChannel: '/var/log/audit/audit.log' },
-      { platform: 'macOS', eventSource: 'Endpoint Security', eventId: 'ES_EVENT_TYPE_NOTIFY_CONNECT' },
+      { platform: 'Windows', eventSource: 'Sysmon', logSourceName: 'WinEventLog:Sysmon', eventId: '3', logChannel: 'Microsoft-Windows-Sysmon/Operational', notes: 'Network connection detected' },
+      { platform: 'Windows', eventSource: 'Windows Firewall', logSourceName: 'WinEventLog:Security', eventId: '5156', logChannel: 'Security', notes: 'Windows Filtering Platform permitted connection' },
+      { platform: 'Linux', eventSource: 'Auditd', logSourceName: 'auditd:SYSCALL', eventId: 'SYSCALL connect', logChannel: '/var/log/audit/audit.log' },
+      { platform: 'macOS', eventSource: 'Endpoint Security', logSourceName: 'endpointsecurity:connect', eventId: 'ES_EVENT_TYPE_NOTIFY_CONNECT' },
     ]
   },
   'DC0017': {
@@ -94,10 +95,10 @@ export const dataComponents: Record<string, DataComponentRef> = {
       { name: 'working_directory', description: 'Current working directory', fieldPath: 'process.working_directory' },
     ],
     platforms: [
-      { platform: 'Windows', eventSource: 'Security', eventId: '4688', logChannel: 'Security', notes: 'Process creation with command line auditing' },
-      { platform: 'Windows', eventSource: 'Sysmon', eventId: '1', logChannel: 'Microsoft-Windows-Sysmon/Operational', notes: 'Process creation' },
-      { platform: 'Linux', eventSource: 'Auditd', eventId: 'EXECVE', logChannel: '/var/log/audit/audit.log' },
-      { platform: 'macOS', eventSource: 'Endpoint Security', eventId: 'ES_EVENT_TYPE_NOTIFY_EXEC' },
+      { platform: 'Windows', eventSource: 'Security', logSourceName: 'WinEventLog:Security', eventId: '4688', logChannel: 'Security', notes: 'Process creation with command line auditing' },
+      { platform: 'Windows', eventSource: 'Sysmon', logSourceName: 'WinEventLog:Sysmon', eventId: '1', logChannel: 'Microsoft-Windows-Sysmon/Operational', notes: 'Process creation' },
+      { platform: 'Linux', eventSource: 'Auditd', logSourceName: 'auditd:EXECVE', eventId: 'EXECVE', logChannel: '/var/log/audit/audit.log' },
+      { platform: 'macOS', eventSource: 'Endpoint Security', logSourceName: 'endpointsecurity:exec', eventId: 'ES_EVENT_TYPE_NOTIFY_EXEC' },
     ]
   },
   'DC0005': {
@@ -117,11 +118,11 @@ export const dataComponents: Record<string, DataComponentRef> = {
       { name: 'hashes', description: 'File hashes (MD5, SHA1, SHA256)', fieldPath: 'file.hash.*' },
     ],
     platforms: [
-      { platform: 'Windows', eventSource: 'Security', eventId: '4688', logChannel: 'Security', notes: 'Requires "Audit Process Creation" policy' },
-      { platform: 'Windows', eventSource: 'Sysmon', eventId: '1', logChannel: 'Microsoft-Windows-Sysmon/Operational', notes: 'Recommended for command line and hash data' },
-      { platform: 'Linux', eventSource: 'Auditd', eventId: 'EXECVE', logChannel: '/var/log/audit/audit.log' },
-      { platform: 'macOS', eventSource: 'Endpoint Security', eventId: 'ES_EVENT_TYPE_NOTIFY_EXEC' },
-      { platform: 'ESXi', eventSource: 'ESXi Shell', logChannel: '/var/log/shell.log' },
+      { platform: 'Windows', eventSource: 'Security', logSourceName: 'WinEventLog:Security', eventId: '4688', logChannel: 'Security', notes: 'Requires "Audit Process Creation" policy' },
+      { platform: 'Windows', eventSource: 'Sysmon', logSourceName: 'WinEventLog:Sysmon', eventId: '1', logChannel: 'Microsoft-Windows-Sysmon/Operational', notes: 'Recommended for command line and hash data' },
+      { platform: 'Linux', eventSource: 'Auditd', logSourceName: 'auditd:EXECVE', eventId: 'EXECVE', logChannel: '/var/log/audit/audit.log' },
+      { platform: 'macOS', eventSource: 'Endpoint Security', logSourceName: 'endpointsecurity:exec', eventId: 'ES_EVENT_TYPE_NOTIFY_EXEC' },
+      { platform: 'ESXi', eventSource: 'ESXi Shell', logSourceName: 'esxi:shell', logChannel: '/var/log/shell.log' },
     ]
   },
   'DC0024': {
@@ -138,10 +139,10 @@ export const dataComponents: Record<string, DataComponentRef> = {
       { name: 'runspace_id', description: 'PowerShell runspace identifier', fieldPath: 'powershell.runspace_id' },
     ],
     platforms: [
-      { platform: 'Windows', eventSource: 'PowerShell', eventId: '4103', logChannel: 'Microsoft-Windows-PowerShell/Operational', notes: 'Module logging' },
-      { platform: 'Windows', eventSource: 'PowerShell', eventId: '4104', logChannel: 'Microsoft-Windows-PowerShell/Operational', notes: 'Script block logging' },
-      { platform: 'Windows', eventSource: 'PowerShell', eventId: '800', logChannel: 'Windows PowerShell', notes: 'Pipeline execution' },
-      { platform: 'Linux', eventSource: 'Bash', logChannel: '/var/log/bash.log or .bash_history', notes: 'Requires HISTFILE configuration' },
+      { platform: 'Windows', eventSource: 'PowerShell', logSourceName: 'WinEventLog:PowerShell', eventId: '4103', logChannel: 'Microsoft-Windows-PowerShell/Operational', notes: 'Module logging' },
+      { platform: 'Windows', eventSource: 'PowerShell', logSourceName: 'WinEventLog:PowerShell', eventId: '4104', logChannel: 'Microsoft-Windows-PowerShell/Operational', notes: 'Script block logging' },
+      { platform: 'Windows', eventSource: 'PowerShell', logSourceName: 'WinEventLog:PowerShell', eventId: '800', logChannel: 'Windows PowerShell', notes: 'Pipeline execution' },
+      { platform: 'Linux', eventSource: 'Bash', logSourceName: 'bash:history', logChannel: '/var/log/bash.log or .bash_history', notes: 'Requires HISTFILE configuration' },
     ]
   },
   'DC0001': {
@@ -159,11 +160,11 @@ export const dataComponents: Record<string, DataComponentRef> = {
       { name: 'status', description: 'Success or failure status', fieldPath: 'event.outcome' },
     ],
     platforms: [
-      { platform: 'Windows', eventSource: 'Security', eventId: '4624', logChannel: 'Security', notes: 'Successful logon' },
-      { platform: 'Windows', eventSource: 'Security', eventId: '4625', logChannel: 'Security', notes: 'Failed logon' },
-      { platform: 'Windows', eventSource: 'Security', eventId: '4648', logChannel: 'Security', notes: 'Explicit credential logon' },
-      { platform: 'Linux', eventSource: 'PAM', logChannel: '/var/log/auth.log or /var/log/secure' },
-      { platform: 'Azure AD', eventSource: 'Sign-in Logs', notes: 'Azure AD sign-in activity' },
+      { platform: 'Windows', eventSource: 'Security', logSourceName: 'WinEventLog:Security', eventId: '4624', logChannel: 'Security', notes: 'Successful logon' },
+      { platform: 'Windows', eventSource: 'Security', logSourceName: 'WinEventLog:Security', eventId: '4625', logChannel: 'Security', notes: 'Failed logon' },
+      { platform: 'Windows', eventSource: 'Security', logSourceName: 'WinEventLog:Security', eventId: '4648', logChannel: 'Security', notes: 'Explicit credential logon' },
+      { platform: 'Linux', eventSource: 'PAM', logSourceName: 'pam:auth', logChannel: '/var/log/auth.log or /var/log/secure' },
+      { platform: 'Azure AD', eventSource: 'Sign-in Logs', logSourceName: 'azuread:signin', notes: 'Azure AD sign-in activity' },
     ]
   },
   'DC0036': {
@@ -180,9 +181,9 @@ export const dataComponents: Record<string, DataComponentRef> = {
       { name: 'author', description: 'Task author/creator', fieldPath: 'winlog.task_scheduler.author' },
     ],
     platforms: [
-      { platform: 'Windows', eventSource: 'Security', eventId: '4698', logChannel: 'Security', notes: 'Scheduled task created' },
-      { platform: 'Windows', eventSource: 'Task Scheduler', eventId: '106', logChannel: 'Microsoft-Windows-TaskScheduler/Operational', notes: 'Task registered' },
-      { platform: 'Linux', eventSource: 'Cron', logChannel: '/var/log/cron' },
+      { platform: 'Windows', eventSource: 'Security', logSourceName: 'WinEventLog:Security', eventId: '4698', logChannel: 'Security', notes: 'Scheduled task created' },
+      { platform: 'Windows', eventSource: 'Task Scheduler', logSourceName: 'WinEventLog:TaskScheduler', eventId: '106', logChannel: 'Microsoft-Windows-TaskScheduler/Operational', notes: 'Task registered' },
+      { platform: 'Linux', eventSource: 'Cron', logSourceName: 'cron:job', logChannel: '/var/log/cron' },
     ]
   },
 };
