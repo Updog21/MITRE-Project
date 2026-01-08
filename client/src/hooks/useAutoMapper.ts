@@ -1,18 +1,34 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useMemo } from "react";
-import { 
-  getDetectionStrategiesByTechniques, 
-  getDataComponentsFromStrategies,
-  DetectionStrategy,
-  DataComponentRef 
-} from "@/lib/mitreData";
+import { useState, useEffect, useMemo } from "react";
+
+export interface StixDetectionStrategy {
+  id: string;
+  name: string;
+  description: string;
+  techniques: string[];
+  analytics: StixAnalytic[];
+}
+
+export interface StixAnalytic {
+  id: string;
+  name: string;
+  description: string;
+  platforms: string[];
+  dataComponents: string[];
+}
+
+export interface StixDataComponent {
+  id: string;
+  name: string;
+  dataSource: string;
+}
 
 export interface EnrichedCommunityMapping {
   source: string;
   confidence: number;
   techniqueIds: string[];
-  detectionStrategies: DetectionStrategy[];
-  dataComponents: DataComponentRef[];
+  detectionStrategies: StixDetectionStrategy[];
+  dataComponents: StixDataComponent[];
   communityAnalytics: AnalyticMapping[];
 }
 
@@ -114,39 +130,72 @@ export function useAutoMappingWithAutoRun(productId: string, platform?: string) 
 
   const rawData = autoRunMutation.data || statusQuery.data;
 
-  const enrichedMapping = useMemo((): EnrichedCommunityMapping | null => {
+  const [stixMapping, setStixMapping] = useState<{
+    detectionStrategies: StixDetectionStrategy[];
+    dataComponents: StixDataComponent[];
+  } | null>(null);
+  const [stixLoading, setStixLoading] = useState(false);
+
+  const techniqueIds = useMemo(() => {
     if (!rawData?.mapping || rawData.status !== 'matched') {
-      return null;
+      return [];
     }
     
-    // API returns detection strategy IDs like "DS-T1078.004" - extract technique IDs
     const rawStrategies = rawData.mapping.detectionStrategies || [];
-    const techniqueIds = rawStrategies.map((id: string) => {
-      // Convert "DS-T1078.004" to "T1078.004"
+    return rawStrategies.map((id: string) => {
       if (id.startsWith('DS-')) {
         return id.substring(3);
       }
       return id;
     });
+  }, [rawData]);
+
+  useEffect(() => {
+    if (techniqueIds.length === 0) {
+      setStixMapping(null);
+      return;
+    }
+
+    const idsKey = techniqueIds.join(',');
     
-    const detectionStrategies = getDetectionStrategiesByTechniques(techniqueIds, platform);
-    const dataComponents = getDataComponentsFromStrategies(detectionStrategies);
+    setStixLoading(true);
+    fetch('/api/mitre-stix/techniques/mapping', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ techniqueIds, platform }),
+    })
+      .then(res => res.json())
+      .then(data => {
+        setStixMapping(data);
+        setStixLoading(false);
+      })
+      .catch(err => {
+        console.error('Failed to fetch STIX mapping:', err);
+        setStixLoading(false);
+      });
+  }, [techniqueIds.join(','), platform]);
+
+  const enrichedMapping = useMemo((): EnrichedCommunityMapping | null => {
+    if (!rawData?.mapping || rawData.status !== 'matched') {
+      return null;
+    }
     
     return {
       source: rawData.source || 'unknown',
       confidence: rawData.confidence || 0,
       techniqueIds,
-      detectionStrategies,
-      dataComponents,
+      detectionStrategies: stixMapping?.detectionStrategies || [],
+      dataComponents: stixMapping?.dataComponents || [],
       communityAnalytics: rawData.mapping.analytics,
     };
-  }, [rawData, platform]);
+  }, [rawData, techniqueIds, stixMapping]);
 
   return {
     data: rawData,
     enrichedMapping,
-    isLoading: statusQuery.isLoading || autoRunMutation.isPending,
+    isLoading: statusQuery.isLoading || autoRunMutation.isPending || stixLoading,
     isAutoRunning: autoRunMutation.isPending,
+    isStixLoading: stixLoading,
     error: statusQuery.error || autoRunMutation.error,
     shouldAutoRun,
     triggerAutoRun: () => autoRunMutation.mutate(productId),

@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { insertProductSchema, insertDataComponentSchema, insertDetectionStrategySchema, insertAnalyticSchema, insertMitreAssetSchema } from "@shared/schema";
 import { fromZodError } from "zod-validation-error";
 import { runAutoMapper, getMappingStatus, getAllProductMappings, RESOURCE_PRIORITY } from "./auto-mapper";
+import { mitreKnowledgeGraph } from "./mitre-stix";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -246,6 +247,76 @@ export async function registerRoutes(
   // Get resource priority matrix
   app.get("/api/auto-mapper/priority", async (req, res) => {
     res.json(RESOURCE_PRIORITY);
+  });
+
+  // MITRE STIX Knowledge Graph endpoints
+  
+  // Initialize STIX data (trigger on server start or explicit call)
+  app.post("/api/mitre-stix/init", async (req, res) => {
+    try {
+      await mitreKnowledgeGraph.ensureInitialized();
+      const stats = mitreKnowledgeGraph.getStats();
+      res.json({ status: 'initialized', stats });
+    } catch (error) {
+      console.error("Error initializing MITRE STIX data:", error);
+      res.status(500).json({ error: "Failed to initialize MITRE STIX data" });
+    }
+  });
+
+  // Get STIX stats
+  app.get("/api/mitre-stix/stats", async (req, res) => {
+    try {
+      await mitreKnowledgeGraph.ensureInitialized();
+      const stats = mitreKnowledgeGraph.getStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Error getting MITRE STIX stats:", error);
+      res.status(500).json({ error: "Failed to get stats" });
+    }
+  });
+
+  // Get log requirements for a technique
+  app.get("/api/mitre-stix/technique/:techniqueId/requirements", async (req, res) => {
+    try {
+      await mitreKnowledgeGraph.ensureInitialized();
+      const { techniqueId } = req.params;
+      const requirements = mitreKnowledgeGraph.getLogRequirements(techniqueId);
+      res.json({ techniqueId, requirements });
+    } catch (error) {
+      console.error("Error getting log requirements:", error);
+      res.status(500).json({ error: "Failed to get log requirements" });
+    }
+  });
+
+  // Get full mapping for multiple techniques
+  app.post("/api/mitre-stix/techniques/mapping", async (req, res) => {
+    try {
+      await mitreKnowledgeGraph.ensureInitialized();
+      const { techniqueIds, platform } = req.body;
+      
+      if (!Array.isArray(techniqueIds)) {
+        return res.status(400).json({ error: "techniqueIds must be an array" });
+      }
+      
+      const mapping = mitreKnowledgeGraph.getFullMappingForTechniques(techniqueIds, platform);
+      res.json(mapping);
+    } catch (error) {
+      console.error("Error getting technique mapping:", error);
+      res.status(500).json({ error: "Failed to get technique mapping" });
+    }
+  });
+
+  // Get strategies for a technique
+  app.get("/api/mitre-stix/technique/:techniqueId/strategies", async (req, res) => {
+    try {
+      await mitreKnowledgeGraph.ensureInitialized();
+      const { techniqueId } = req.params;
+      const strategies = mitreKnowledgeGraph.getStrategiesForTechnique(techniqueId);
+      res.json({ techniqueId, strategies });
+    } catch (error) {
+      console.error("Error getting strategies:", error);
+      res.status(500).json({ error: "Failed to get strategies" });
+    }
   });
 
   return httpServer;

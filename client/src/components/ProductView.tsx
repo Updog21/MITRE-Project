@@ -666,6 +666,7 @@ export function ProductView({ product, onBack }: ProductViewProps) {
               <div className="space-y-4">
                 {autoMapping.enrichedMapping.detectionStrategies.map((strategy) => {
                   const isStrategyExpanded = expandedStrategies.has(`community-${strategy.id}`);
+                  const stixDataComponents = autoMapping.enrichedMapping?.dataComponents || [];
                   
                   return (
                     <div key={`community-${strategy.id}`} className="border border-border rounded-lg overflow-hidden bg-card">
@@ -732,8 +733,9 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                             <div className="space-y-3">
                               {strategy.analytics.map((analytic) => {
                                 const isAnalyticExpanded = expandedAnalytics.has(`community-${analytic.id}`);
-                                const logSources = getLogSourcesForAnalytic(analytic);
-                                const mutableElements = getMutableElementsForAnalytic(analytic);
+                                const analyticDataComponents = analytic.dataComponents
+                                  .map(dcId => stixDataComponents.find(dc => dc.id === dcId))
+                                  .filter(Boolean);
 
                                 return (
                                   <div key={`community-${analytic.id}`} className="border border-border rounded-md overflow-hidden bg-background">
@@ -753,7 +755,7 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                                         </div>
                                       </div>
                                       <Badge variant="outline" className="text-xs">
-                                        {logSources.length} Log Sources
+                                        {analyticDataComponents.length} Data Components
                                       </Badge>
                                     </button>
 
@@ -764,66 +766,46 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                                           <p className="text-sm text-foreground">{analytic.description}</p>
                                         </div>
 
+                                        {analytic.platforms.length > 0 && (
+                                          <div>
+                                            <h5 className="text-sm font-medium text-muted-foreground mb-2">Platforms</h5>
+                                            <div className="flex flex-wrap gap-1">
+                                              {analytic.platforms.map(p => (
+                                                <Badge key={p} variant="outline" className="text-xs">{p}</Badge>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        )}
+
                                         <div>
                                           <h5 className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-2">
                                             <Database className="w-4 h-4" />
-                                            Log Sources
+                                            Data Components
                                           </h5>
                                           <div className="border border-border rounded-md overflow-hidden">
                                             <table className="w-full text-sm">
                                               <thead className="bg-muted/50">
                                                 <tr>
                                                   <th className="text-left px-3 py-2 font-medium text-muted-foreground">Data Component</th>
-                                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Name</th>
-                                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Channel</th>
+                                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Data Source</th>
                                                 </tr>
                                               </thead>
                                               <tbody className="divide-y divide-border">
-                                                {logSources.map((ls, idx) => (
+                                                {analyticDataComponents.map((dc, idx) => (
                                                   <tr key={idx}>
-                                                    <td className="px-3 py-2">
-                                                      <button
-                                                        onClick={() => {
-                                                          const dc = dataComponents[ls.dataComponentId];
-                                                          if (dc) setSelectedDataComponent(dc);
-                                                        }}
-                                                        className="text-primary hover:underline font-mono text-xs"
-                                                      >
-                                                        {ls.dataComponentId}
-                                                      </button>
-                                                    </td>
-                                                    <td className="px-3 py-2 text-foreground">{ls.logSourceName}</td>
-                                                    <td className="px-3 py-2 text-muted-foreground">{ls.channel}</td>
+                                                    <td className="px-3 py-2 text-foreground">{dc?.name || 'Unknown'}</td>
+                                                    <td className="px-3 py-2 text-muted-foreground">{dc?.dataSource || '-'}</td>
                                                   </tr>
                                                 ))}
+                                                {analyticDataComponents.length === 0 && (
+                                                  <tr>
+                                                    <td colSpan={2} className="px-3 py-2 text-muted-foreground italic">No data components defined</td>
+                                                  </tr>
+                                                )}
                                               </tbody>
                                             </table>
                                           </div>
                                         </div>
-
-                                        {mutableElements.length > 0 && (
-                                          <div>
-                                            <h5 className="text-sm font-medium text-muted-foreground mb-2">Mutable Elements</h5>
-                                            <div className="border border-border rounded-md overflow-hidden">
-                                              <table className="w-full text-sm">
-                                                <thead className="bg-muted/50">
-                                                  <tr>
-                                                    <th className="text-left px-3 py-2 font-medium text-muted-foreground w-48">Field</th>
-                                                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Description</th>
-                                                  </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-border">
-                                                  {mutableElements.map(me => (
-                                                    <tr key={me.field}>
-                                                      <td className="px-3 py-2 font-mono text-primary">{me.field}</td>
-                                                      <td className="px-3 py-2 text-foreground">{me.description}</td>
-                                                    </tr>
-                                                  ))}
-                                                </tbody>
-                                              </table>
-                                            </div>
-                                          </div>
-                                        )}
                                       </div>
                                     )}
                                   </div>
