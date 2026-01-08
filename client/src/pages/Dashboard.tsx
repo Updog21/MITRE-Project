@@ -1,31 +1,55 @@
 import { useState } from 'react';
-import { Search, Shield, Database, Target, Layers, ChevronRight, Cpu } from 'lucide-react';
+import { 
+  Search, 
+  Shield, 
+  Database, 
+  Layers, 
+  ChevronRight,
+  Home,
+  FileText,
+  Settings,
+  HelpCircle,
+  ExternalLink,
+  BookOpen,
+  Boxes
+} from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { searchProducts, Asset, ctidProducts, detectionStrategies, dataComponents } from '@/lib/mitreData';
 import { ProductView } from '@/components/ProductView';
 
 type ViewState = 'search' | 'product';
 
+const categories = [
+  { id: 'all', label: 'All Products' },
+  { id: 'windows', label: 'Windows' },
+  { id: 'linux', label: 'Linux' },
+  { id: 'cloud', label: 'Cloud' },
+  { id: 'network', label: 'Network' },
+];
+
+const sidebarNav = [
+  { icon: Home, label: 'Products', active: true },
+  { icon: Layers, label: 'Data Components' },
+  { icon: FileText, label: 'Detection Strategies' },
+  { icon: BookOpen, label: 'Documentation' },
+];
+
 export default function Dashboard() {
   const [view, setView] = useState<ViewState>('search');
   const [selectedProduct, setSelectedProduct] = useState<Asset | null>(null);
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<Asset[]>([]);
-  const [hasSearched, setHasSearched] = useState(false);
+  const [activeCategory, setActiveCategory] = useState('all');
 
-  const handleSearch = () => {
-    if (!query.trim()) return;
-    const found = searchProducts(query);
-    setResults(found);
-    setHasSearched(true);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') handleSearch();
-  };
+  const filteredProducts = query.trim() 
+    ? searchProducts(query)
+    : ctidProducts.filter(p => {
+        if (activeCategory === 'all') return true;
+        if (activeCategory === 'windows') return p.platforms.includes('Windows');
+        if (activeCategory === 'linux') return p.platforms.includes('Linux');
+        if (activeCategory === 'cloud') return p.platforms.includes('Azure AD');
+        return true;
+      });
 
   const handleSelectProduct = (product: Asset) => {
     setSelectedProduct(product);
@@ -37,203 +61,185 @@ export default function Dashboard() {
     setSelectedProduct(null);
   };
 
-  if (view === 'product' && selectedProduct) {
-    return (
-      <div className="min-h-screen bg-background">
-        <div className="p-6">
-          <ProductView product={selectedProduct} onBack={handleBack} />
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-background">
-      <div className="p-6 space-y-8">
-        <header className="text-center max-w-3xl mx-auto pt-8">
-          <div className="flex items-center justify-center gap-3 mb-6">
-            <div className="w-16 h-16 rounded-2xl bg-primary/20 flex items-center justify-center">
-              <Shield className="w-9 h-9 text-primary" />
+    <div className="min-h-screen flex bg-background">
+      <aside className="w-60 border-r border-border bg-sidebar flex-shrink-0 flex flex-col">
+        <div className="p-4 border-b border-border">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+              <Shield className="w-5 h-5 text-primary-foreground" />
             </div>
-          </div>
-          <h1 className="text-4xl font-bold text-foreground tracking-tight">OpenTidal</h1>
-          <p className="text-lg text-muted-foreground mt-3 max-w-xl mx-auto">
-            Threat-Informed Defense Platform — Map security products to MITRE ATT&CK Detection Strategies
-          </p>
-        </header>
-
-        <div className="max-w-2xl mx-auto">
-          <div className="flex gap-3">
-            <div className="relative flex-1">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-              <Input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Search products (Windows, Sysmon, Azure, Linux...)"
-                className="pl-12 h-14 text-lg bg-card border-border"
-                data-testid="input-product-search"
-              />
-            </div>
-            <Button onClick={handleSearch} size="lg" className="h-14 px-8" data-testid="button-search">
-              Search
-            </Button>
+            <span className="font-semibold text-foreground">OpenTidal</span>
           </div>
         </div>
 
-        {hasSearched && (
-          <div className="max-w-4xl mx-auto">
-            {results.length > 0 ? (
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Database className="w-4 h-4 text-green-400" />
-                  <span>Found {results.length} product(s) in CTID Security Stack Mappings</span>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {results.map((product) => (
-                    <Card 
-                      key={product.id}
-                      className="bg-card/50 border-border hover:border-primary/50 transition-all cursor-pointer group"
-                      onClick={() => handleSelectProduct(product)}
-                      data-testid={`card-result-${product.id}`}
-                    >
-                      <CardContent className="p-5">
-                        <div className="flex items-start gap-4">
-                          <div className="w-12 h-12 rounded-xl bg-green-500/20 flex items-center justify-center flex-shrink-0">
-                            <Database className="w-6 h-6 text-green-400" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <span className="text-sm text-muted-foreground">{product.vendor}</span>
-                            <h3 className="text-lg font-semibold text-foreground group-hover:text-primary transition-colors">
-                              {product.productName}
-                            </h3>
-                            <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
-                              {product.description}
-                            </p>
-                            <div className="flex items-center gap-2 mt-3">
-                              {product.platforms.map(p => (
-                                <Badge key={p} variant="secondary" className="text-xs">{p}</Badge>
-                              ))}
-                              <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-xs">
-                                CTID
-                              </Badge>
-                            </div>
-                          </div>
-                          <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors flex-shrink-0" />
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
+        <div className="p-3">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search..."
+              className="pl-8 h-9 text-sm bg-background"
+              data-testid="input-sidebar-search"
+            />
+          </div>
+        </div>
+
+        <nav className="flex-1 px-3">
+          <div className="space-y-1">
+            {sidebarNav.map((item) => (
+              <button
+                key={item.label}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm rounded-md transition-colors ${
+                  item.active 
+                    ? 'bg-primary/10 text-primary font-medium' 
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                }`}
+                data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}
+              >
+                <item.icon className="w-4 h-4" />
+                {item.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-6 pt-6 border-t border-border">
+            <p className="px-3 text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
+              Resources
+            </p>
+            <div className="space-y-1">
+              <a
+                href="https://attack.mitre.org"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2.5 px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground rounded-md"
+              >
+                <ExternalLink className="w-4 h-4" />
+                MITRE ATT&CK
+              </a>
+              <a
+                href="https://github.com/center-for-threat-informed-defense"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2.5 px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground rounded-md"
+              >
+                <Boxes className="w-4 h-4" />
+                CTID GitHub
+              </a>
+            </div>
+          </div>
+        </nav>
+
+        <div className="p-3 border-t border-border">
+          <button className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground rounded-md">
+            <Settings className="w-4 h-4" />
+            Settings
+          </button>
+          <button className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground rounded-md">
+            <HelpCircle className="w-4 h-4" />
+            Help
+          </button>
+        </div>
+      </aside>
+
+      <main className="flex-1 overflow-auto">
+        {view === 'product' && selectedProduct ? (
+          <ProductView product={selectedProduct} onBack={handleBack} />
+        ) : (
+          <div className="p-8">
+            <div className="mb-8">
+              <h1 className="text-2xl font-semibold text-foreground">Security Products</h1>
+              <p className="text-muted-foreground mt-1">
+                Browse CTID-verified product mappings to MITRE ATT&CK detection strategies
+              </p>
+            </div>
+
+            <div className="mb-6">
+              <div className="relative max-w-xl">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                <Input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search for a product..."
+                  className="pl-10 h-11 text-base"
+                  data-testid="input-product-search"
+                />
               </div>
-            ) : (
-              <Card className="bg-card/50 border-border border-dashed">
-                <CardContent className="py-12 text-center">
-                  <Cpu className="w-14 h-14 text-muted-foreground mx-auto mb-4 opacity-30" />
-                  <h3 className="text-xl font-semibold text-foreground mb-2">
-                    No CTID mapping found for "{query}"
+            </div>
+
+            <div className="flex flex-wrap gap-2 mb-8">
+              {categories.map((cat) => (
+                <button
+                  key={cat.id}
+                  onClick={() => setActiveCategory(cat.id)}
+                  className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${
+                    activeCategory === cat.id
+                      ? 'bg-foreground text-background border-foreground'
+                      : 'bg-background text-foreground border-border hover:border-foreground/30'
+                  }`}
+                  data-testid={`filter-${cat.id}`}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {filteredProducts.map((product) => (
+                <button
+                  key={product.id}
+                  onClick={() => handleSelectProduct(product)}
+                  className="group p-5 bg-card rounded-lg border border-border hover:border-primary/50 hover:shadow-md transition-all text-left"
+                  data-testid={`card-product-${product.id}`}
+                >
+                  <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center mb-4">
+                    <Database className="w-6 h-6 text-muted-foreground group-hover:text-primary transition-colors" />
+                  </div>
+                  <h3 className="font-medium text-foreground group-hover:text-primary transition-colors mb-1">
+                    {product.productName}
                   </h3>
-                  <p className="text-muted-foreground mb-6 max-w-md mx-auto">
-                    This product isn't in the MITRE CTID Security Stack Mappings database yet.
-                    Would you like to use AI to create a mapping?
+                  <p className="text-sm text-muted-foreground mb-3">
+                    {product.vendor}
                   </p>
-                  <Button data-testid="button-ai-mapping">
-                    <Cpu className="w-4 h-4 mr-2" />
-                    Create AI Mapping
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-        )}
+                  <div className="flex flex-wrap gap-1.5">
+                    {product.platforms.map(p => (
+                      <Badge key={p} variant="secondary" className="text-xs font-normal">
+                        {p}
+                      </Badge>
+                    ))}
+                  </div>
+                </button>
+              ))}
+            </div>
 
-        {!hasSearched && (
-          <div className="max-w-4xl mx-auto space-y-8">
-            <div>
-              <h3 className="text-sm font-medium text-muted-foreground mb-4">Quick Access</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {ctidProducts.map((product) => (
-                  <Card 
-                    key={product.id}
-                    className="bg-card/30 border-border hover:border-primary/50 transition-all cursor-pointer group"
-                    onClick={() => handleSelectProduct(product)}
-                    data-testid={`card-quick-${product.id}`}
-                  >
-                    <CardContent className="p-4">
-                      <span className="text-xs text-muted-foreground">{product.vendor}</span>
-                      <h4 className="font-medium text-foreground group-hover:text-primary transition-colors text-sm mt-0.5">
-                        {product.productName}
-                      </h4>
-                      <div className="flex gap-1 mt-2">
-                        {product.platforms.map(p => (
-                          <Badge key={p} variant="secondary" className="text-[10px]">{p}</Badge>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+            {filteredProducts.length === 0 && (
+              <div className="text-center py-16">
+                <Database className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-foreground mb-2">No products found</h3>
+                <p className="text-muted-foreground">
+                  Try adjusting your search or filters
+                </p>
+              </div>
+            )}
+
+            <div className="mt-12 pt-8 border-t border-border">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="p-5 rounded-lg bg-muted/50">
+                  <div className="text-3xl font-bold text-foreground">{ctidProducts.length}</div>
+                  <div className="text-sm text-muted-foreground mt-1">CTID Products</div>
+                </div>
+                <div className="p-5 rounded-lg bg-muted/50">
+                  <div className="text-3xl font-bold text-foreground">{detectionStrategies.length}</div>
+                  <div className="text-sm text-muted-foreground mt-1">Detection Strategies</div>
+                </div>
+                <div className="p-5 rounded-lg bg-muted/50">
+                  <div className="text-3xl font-bold text-foreground">{Object.keys(dataComponents).length}</div>
+                  <div className="text-sm text-muted-foreground mt-1">Data Components</div>
+                </div>
               </div>
             </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <Card className="bg-card/30 border-border">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Database className="w-5 h-5 text-green-400" />
-                    CTID Mappings
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground">
-                    Search verified product mappings from the Center for Threat-Informed Defense.
-                  </p>
-                  <div className="mt-4 text-2xl font-bold text-green-400">
-                    {ctidProducts.length}
-                    <span className="text-sm font-normal text-muted-foreground ml-2">products</span>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-card/30 border-border">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Target className="w-5 h-5 text-primary" />
-                    Detection Strategies
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground">
-                    MITRE detection strategies with analytics, log sources, and mutable elements.
-                  </p>
-                  <div className="mt-4 text-2xl font-bold text-primary">
-                    {detectionStrategies.length}
-                    <span className="text-sm font-normal text-muted-foreground ml-2">strategies</span>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-card/30 border-border">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Layers className="w-5 h-5 text-blue-400" />
-                    Data Components
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground">
-                    Log types with event channels, event codes, and required fields.
-                  </p>
-                  <div className="mt-4 text-2xl font-bold text-blue-400">
-                    {Object.keys(dataComponents).length}
-                    <span className="text-sm font-normal text-muted-foreground ml-2">components</span>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
 }

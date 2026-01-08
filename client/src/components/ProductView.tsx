@@ -1,22 +1,19 @@
 import { useState, useMemo } from 'react';
 import { Asset, getDetectionStrategiesForProduct, dataComponents, techniques } from '@/lib/mitreData';
-import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { 
-  Server,
-  Database,
-  ChevronDown,
   ChevronRight,
   ExternalLink,
-  Shield,
+  ChevronDown,
+  Database,
   Layers,
   Code,
   Terminal,
   Monitor,
-  Zap,
+  Cloud,
   CheckCircle2,
-  ArrowRight
+  ArrowLeft
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -29,7 +26,7 @@ function getPlatformIcon(platform: string) {
   switch (platform) {
     case 'Windows': return <Monitor className="w-4 h-4" />;
     case 'Linux': return <Terminal className="w-4 h-4" />;
-    case 'Azure AD': return <Database className="w-4 h-4" />;
+    case 'Azure AD': return <Cloud className="w-4 h-4" />;
     default: return <Monitor className="w-4 h-4" />;
   }
 }
@@ -58,6 +55,7 @@ interface FilteredDataComponent {
 export function ProductView({ product, onBack }: ProductViewProps) {
   const [expandedAnalytics, setExpandedAnalytics] = useState<Set<string>>(new Set());
   const [expandedDataComponents, setExpandedDataComponents] = useState<Set<string>>(new Set());
+  const [activeSection, setActiveSection] = useState('overview');
   
   const platform = product.platforms[0];
   
@@ -133,296 +131,317 @@ export function ProductView({ product, onBack }: ProductViewProps) {
     });
   };
 
+  const tocItems = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'data-components', label: 'Data Components' },
+    { id: 'analytics', label: 'Detection Analytics' },
+    { id: 'coverage', label: 'Coverage Summary' },
+  ];
+
   return (
-    <div className="max-w-4xl mx-auto">
-      <button 
-        onClick={onBack}
-        className="text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"
-        data-testid="button-back"
-      >
-        ← Back to search
-      </button>
+    <div className="flex">
+      <div className="flex-1 max-w-4xl">
+        <div className="p-8">
+          <nav className="flex items-center gap-2 text-sm text-muted-foreground mb-6">
+            <button 
+              onClick={onBack} 
+              className="hover:text-foreground transition-colors flex items-center gap-1"
+              data-testid="button-back"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Products
+            </button>
+            <ChevronRight className="w-4 h-4" />
+            <span className="text-foreground">{product.productName}</span>
+          </nav>
 
-      <header className="mb-8">
-        <div className="flex items-center gap-3 mb-2">
-          <Badge variant="outline" className="text-xs">
-            {product.vendor}
-          </Badge>
-          <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 text-xs">
-            {getPlatformIcon(platform)}
-            <span className="ml-1">{platform}</span>
-          </Badge>
-        </div>
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">{product.productName}</h1>
-        <p className="text-muted-foreground mt-2 text-lg leading-relaxed">{product.description}</p>
-      </header>
+          <header className="mb-8" id="overview">
+            <div className="flex items-center gap-2 mb-3">
+              <Badge variant="secondary" className="text-xs">
+                {getPlatformIcon(platform)}
+                <span className="ml-1">{platform}</span>
+              </Badge>
+              <Badge variant="outline" className="text-xs">
+                CTID Verified
+              </Badge>
+            </div>
+            <h1 className="text-3xl font-semibold text-foreground mb-2">{product.productName}</h1>
+            <p className="text-lg text-muted-foreground">{product.description}</p>
+            
+            <div className="mt-6 grid grid-cols-4 gap-4">
+              <div className="p-4 rounded-lg border border-border bg-muted/30">
+                <div className="text-2xl font-semibold text-foreground">{filteredDataComponents.length}</div>
+                <div className="text-sm text-muted-foreground">Data Components</div>
+              </div>
+              <div className="p-4 rounded-lg border border-border bg-muted/30">
+                <div className="text-2xl font-semibold text-foreground">{filteredAnalytics.length}</div>
+                <div className="text-sm text-muted-foreground">Analytics</div>
+              </div>
+              <div className="p-4 rounded-lg border border-border bg-muted/30">
+                <div className="text-2xl font-semibold text-foreground">{coveredTechniques.length}</div>
+                <div className="text-sm text-muted-foreground">Techniques</div>
+              </div>
+              <div className="p-4 rounded-lg border border-border bg-muted/30">
+                <div className="text-2xl font-semibold text-primary">{coverageScore}%</div>
+                <div className="text-sm text-muted-foreground">Coverage</div>
+              </div>
+            </div>
+          </header>
 
-      <div className="flex items-center gap-2 mb-10 py-3 px-4 rounded-lg bg-muted/30 border border-border/50">
-        <div className="flex items-center gap-1.5 text-sm">
-          <Server className="w-4 h-4 text-emerald-400" />
-          <span className="text-foreground font-medium">Product</span>
-        </div>
-        <ArrowRight className="w-4 h-4 text-muted-foreground/50" />
-        <div className="flex items-center gap-1.5 text-sm">
-          <Database className="w-4 h-4 text-blue-400" />
-          <span className="text-muted-foreground">{filteredDataComponents.length} Data Components</span>
-        </div>
-        <ArrowRight className="w-4 h-4 text-muted-foreground/50" />
-        <div className="flex items-center gap-1.5 text-sm">
-          <Layers className="w-4 h-4 text-amber-400" />
-          <span className="text-muted-foreground">{filteredAnalytics.length} Analytics</span>
-        </div>
-        <ArrowRight className="w-4 h-4 text-muted-foreground/50" />
-        <div className="flex items-center gap-1.5 text-sm">
-          <Shield className="w-4 h-4 text-violet-400" />
-          <span className="text-muted-foreground">{coveredTechniques.length} Techniques</span>
+          <section className="mb-10" id="data-components">
+            <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
+              <Database className="w-5 h-5 text-primary" />
+              Data Components
+            </h2>
+            <p className="text-muted-foreground mb-6">
+              Log sources and telemetry provided by this product for {platform}.
+            </p>
+
+            <div className="border border-border rounded-lg divide-y divide-border overflow-hidden">
+              {filteredDataComponents.map((dc) => {
+                const isExpanded = expandedDataComponents.has(dc.id);
+                
+                return (
+                  <div key={dc.id} className="bg-card">
+                    <button
+                      onClick={() => toggleDataComponent(dc.id)}
+                      className="w-full px-4 py-3 text-left flex items-center gap-4 hover:bg-muted/50 transition-colors"
+                      data-testid={`button-expand-dc-${dc.id}`}
+                    >
+                      <ChevronRight className={cn(
+                        "w-4 h-4 text-muted-foreground transition-transform flex-shrink-0",
+                        isExpanded && "rotate-90"
+                      )} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <code className="text-xs text-primary font-mono">{dc.id}</code>
+                          <span className="font-medium text-foreground">{dc.name}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className="text-sm text-muted-foreground font-mono">{dc.eventSource}</span>
+                        {dc.eventId && (
+                          <Badge className="bg-amber-100 text-amber-700 border-amber-200 font-mono text-xs">
+                            {dc.eventId}
+                          </Badge>
+                        )}
+                      </div>
+                    </button>
+
+                    {isExpanded && (
+                      <div className="px-4 pb-4 pt-2 ml-8 border-l-2 border-primary/20 bg-muted/20">
+                        <p className="text-sm text-muted-foreground mb-4">{dc.description}</p>
+                        
+                        <table className="w-full text-sm mb-4">
+                          <tbody className="divide-y divide-border">
+                            <tr>
+                              <td className="py-2 pr-4 text-muted-foreground font-medium w-32">Event Source</td>
+                              <td className="py-2 font-mono text-foreground">{dc.eventSource}</td>
+                            </tr>
+                            {dc.eventId && (
+                              <tr>
+                                <td className="py-2 pr-4 text-muted-foreground font-medium">Event ID</td>
+                                <td className="py-2 font-mono text-foreground">{dc.eventId}</td>
+                              </tr>
+                            )}
+                            {dc.logChannel && (
+                              <tr>
+                                <td className="py-2 pr-4 text-muted-foreground font-medium">Log Channel</td>
+                                <td className="py-2 font-mono text-foreground text-xs break-all">{dc.logChannel}</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+
+                        <div>
+                          <h4 className="text-sm font-medium text-foreground mb-2">Required Fields</h4>
+                          <div className="flex flex-wrap gap-1.5">
+                            {dc.mutableElements.map(me => (
+                              <code 
+                                key={me.name} 
+                                className="text-xs font-mono px-2 py-1 rounded bg-background border border-border text-primary"
+                                title={me.description}
+                              >
+                                {me.name}
+                              </code>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="mb-10" id="analytics">
+            <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
+              <Layers className="w-5 h-5 text-primary" />
+              Detection Analytics
+            </h2>
+            <p className="text-muted-foreground mb-6">
+              Detection rules enabled by the data components above.
+            </p>
+
+            {filteredAnalytics.length > 0 ? (
+              <div className="border border-border rounded-lg divide-y divide-border overflow-hidden">
+                {filteredAnalytics.map((analytic) => {
+                  const isExpanded = expandedAnalytics.has(analytic.id);
+                  const dcRefs = analytic.dataComponents
+                    .map(id => filteredDataComponents.find(dc => dc.id === id))
+                    .filter(Boolean);
+
+                  return (
+                    <div key={analytic.id} className="bg-card">
+                      <button
+                        onClick={() => toggleAnalytic(analytic.id)}
+                        className="w-full px-4 py-3 text-left flex items-center gap-4 hover:bg-muted/50 transition-colors"
+                        data-testid={`button-expand-analytic-${analytic.id}`}
+                      >
+                        <ChevronRight className={cn(
+                          "w-4 h-4 text-muted-foreground transition-transform flex-shrink-0",
+                          isExpanded && "rotate-90"
+                        )} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <code className="text-xs text-primary font-mono">{analytic.id}</code>
+                            <span className="font-medium text-foreground">{analytic.name}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          {analytic.techniques.slice(0, 2).map(t => (
+                            <Badge key={t} className="bg-red-100 text-red-700 border-red-200 font-mono text-xs">
+                              {t}
+                            </Badge>
+                          ))}
+                          {analytic.techniques.length > 2 && (
+                            <span className="text-xs text-muted-foreground">+{analytic.techniques.length - 2}</span>
+                          )}
+                        </div>
+                      </button>
+
+                      {isExpanded && (
+                        <div className="px-4 pb-4 pt-2 ml-8 border-l-2 border-primary/20 bg-muted/20 space-y-4">
+                          <p className="text-sm text-muted-foreground">{analytic.description}</p>
+
+                          {analytic.pseudocode && (
+                            <div>
+                              <h4 className="text-sm font-medium text-foreground mb-2 flex items-center gap-1.5">
+                                <Code className="w-4 h-4" />
+                                Detection Logic
+                              </h4>
+                              <pre className="p-3 rounded-md bg-slate-900 text-slate-100 text-xs font-mono overflow-x-auto leading-relaxed">
+                                {analytic.pseudocode}
+                              </pre>
+                            </div>
+                          )}
+
+                          <div>
+                            <h4 className="text-sm font-medium text-foreground mb-2">Required Data Components</h4>
+                            <div className="flex flex-wrap gap-1.5">
+                              {dcRefs.map(dc => dc && (
+                                <Badge key={dc.id} variant="outline" className="font-mono text-xs">
+                                  {dc.id}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div>
+                            <h4 className="text-sm font-medium text-foreground mb-2">Techniques Detected</h4>
+                            <div className="flex flex-wrap gap-1.5">
+                              {analytic.techniques.map(t => (
+                                <a
+                                  key={t}
+                                  href={`https://attack.mitre.org/techniques/${t.replace('.', '/')}/`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-xs font-mono text-red-600 hover:text-red-700 hover:underline"
+                                >
+                                  {t}
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="py-12 text-center text-muted-foreground border border-dashed border-border rounded-lg">
+                No analytics mapped for {platform} with these data components.
+              </div>
+            )}
+          </section>
+
+          <section id="coverage">
+            <h2 className="text-xl font-semibold text-foreground mb-4">Coverage Summary</h2>
+            
+            <div className="p-6 rounded-lg border border-border bg-card">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <div className="text-sm text-muted-foreground mb-1">Detection Coverage</div>
+                  <div className="text-4xl font-bold text-foreground">{coverageScore}%</div>
+                </div>
+              </div>
+              
+              <Progress value={coverageScore} className="h-2 mb-6" />
+              
+              <p className="text-sm text-muted-foreground mb-6">
+                This product provides <strong className="text-foreground">{filteredDataComponents.length} data components</strong> for {platform}, 
+                enabling <strong className="text-foreground">{filteredAnalytics.length} detection analytics</strong> that 
+                cover <strong className="text-foreground">{coveredTechniques.length} ATT&CK techniques</strong>.
+              </p>
+
+              {coveredTechniques.length > 0 && (
+                <div className="pt-4 border-t border-border">
+                  <h4 className="text-sm font-medium text-foreground mb-3">Covered Techniques</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {coveredTechniques.map(t => (
+                      <a
+                        key={t.id}
+                        href={`https://attack.mitre.org/techniques/${t.id.replace('.', '/')}/`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2 p-2 rounded border border-border hover:border-primary/30 hover:bg-muted/50 transition-colors group"
+                      >
+                        <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
+                        <code className="text-xs font-mono text-red-600">{t.id}</code>
+                        <span className="text-sm text-muted-foreground group-hover:text-foreground transition-colors truncate">{t.name}</span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
         </div>
       </div>
 
-      <section className="mb-10">
-        <div className="flex items-center gap-2 mb-4">
-          <Database className="w-5 h-5 text-blue-400" />
-          <h2 className="text-xl font-semibold text-foreground">Data Components</h2>
-        </div>
-
-        <div className="space-y-2">
-          {filteredDataComponents.map((dc) => {
-            const isExpanded = expandedDataComponents.has(dc.id);
-            
-            return (
-              <div 
-                key={dc.id} 
-                className={cn(
-                  "rounded-lg border transition-all",
-                  isExpanded ? "border-blue-500/30 bg-blue-500/5" : "border-border/50 bg-card/30 hover:border-border"
-                )}
-              >
-                <button
-                  onClick={() => toggleDataComponent(dc.id)}
-                  className="w-full px-4 py-3 text-left flex items-center gap-4"
-                  data-testid={`button-expand-dc-${dc.id}`}
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs text-blue-400">{dc.id}</span>
-                      <span className="text-foreground font-medium">{dc.name}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 flex-shrink-0">
-                    <code className="text-xs text-muted-foreground bg-muted/50 px-2 py-1 rounded">{dc.eventSource}</code>
-                    {dc.eventId && (
-                      <Badge variant="secondary" className="font-mono text-xs">{dc.eventId}</Badge>
-                    )}
-                    {isExpanded ? (
-                      <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                    ) : (
-                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                    )}
-                  </div>
-                </button>
-
-                {isExpanded && (
-                  <div className="px-4 pb-4 pt-2 border-t border-border/30">
-                    <p className="text-sm text-muted-foreground mb-4">{dc.description}</p>
-                    
-                    <div className="grid grid-cols-3 gap-4 mb-4">
-                      <div>
-                        <div className="text-[11px] uppercase tracking-wider text-muted-foreground/70 mb-1">Source</div>
-                        <div className="font-mono text-sm text-foreground">{dc.eventSource}</div>
-                      </div>
-                      {dc.eventId && (
-                        <div>
-                          <div className="text-[11px] uppercase tracking-wider text-muted-foreground/70 mb-1">Event ID</div>
-                          <div className="font-mono text-sm text-orange-400">{dc.eventId}</div>
-                        </div>
-                      )}
-                      {dc.logChannel && (
-                        <div className="col-span-2">
-                          <div className="text-[11px] uppercase tracking-wider text-muted-foreground/70 mb-1">Log Channel</div>
-                          <div className="font-mono text-xs text-cyan-400 break-all">{dc.logChannel}</div>
-                        </div>
-                      )}
-                    </div>
-
-                    <div>
-                      <div className="text-[11px] uppercase tracking-wider text-muted-foreground/70 mb-2">Required Fields</div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {dc.mutableElements.map(me => (
-                          <span 
-                            key={me.name} 
-                            className="text-xs font-mono px-2 py-1 rounded bg-muted/50 text-foreground border border-border/50"
-                            title={me.description}
-                          >
-                            {me.name}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    
-                    <a 
-                      href={`https://attack.mitre.org/datasources/`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 mt-4"
-                    >
-                      View in MITRE ATT&CK <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      <section className="mb-10">
-        <div className="flex items-center gap-2 mb-4">
-          <Layers className="w-5 h-5 text-amber-400" />
-          <h2 className="text-xl font-semibold text-foreground">Detection Analytics</h2>
-        </div>
-
-        {filteredAnalytics.length > 0 ? (
-          <div className="space-y-2">
-            {filteredAnalytics.map((analytic) => {
-              const isExpanded = expandedAnalytics.has(analytic.id);
-              const dcRefs = analytic.dataComponents
-                .map(id => filteredDataComponents.find(dc => dc.id === id))
-                .filter(Boolean);
-
-              return (
-                <div 
-                  key={analytic.id} 
-                  className={cn(
-                    "rounded-lg border transition-all",
-                    isExpanded ? "border-amber-500/30 bg-amber-500/5" : "border-border/50 bg-card/30 hover:border-border"
-                  )}
-                >
-                  <button
-                    onClick={() => toggleAnalytic(analytic.id)}
-                    className="w-full px-4 py-3 text-left flex items-center gap-4"
-                    data-testid={`button-expand-analytic-${analytic.id}`}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs text-amber-400">{analytic.id}</span>
-                        <span className="text-foreground font-medium">{analytic.name}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {analytic.techniques.slice(0, 2).map(t => (
-                        <Badge key={t} variant="destructive" className="text-xs font-mono px-1.5 py-0">
-                          {t}
-                        </Badge>
-                      ))}
-                      {analytic.techniques.length > 2 && (
-                        <span className="text-xs text-muted-foreground">+{analytic.techniques.length - 2}</span>
-                      )}
-                      {isExpanded ? (
-                        <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                      ) : (
-                        <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                      )}
-                    </div>
-                  </button>
-
-                  {isExpanded && (
-                    <div className="px-4 pb-4 pt-2 border-t border-border/30 space-y-4">
-                      <p className="text-sm text-muted-foreground">{analytic.description}</p>
-
-                      {analytic.pseudocode && (
-                        <div>
-                          <div className="flex items-center gap-1.5 mb-2">
-                            <Code className="w-3.5 h-3.5 text-emerald-400" />
-                            <span className="text-[11px] uppercase tracking-wider text-muted-foreground/70">Detection Logic</span>
-                          </div>
-                          <pre className="p-3 rounded-md bg-background/80 border border-border/50 text-xs font-mono text-muted-foreground overflow-x-auto leading-relaxed">
-                            {analytic.pseudocode}
-                          </pre>
-                        </div>
-                      )}
-
-                      <div className="flex items-center gap-4 text-sm">
-                        <div className="flex items-center gap-1.5">
-                          <Database className="w-3.5 h-3.5 text-blue-400" />
-                          <span className="text-muted-foreground">Requires:</span>
-                          {dcRefs.map(dc => dc && (
-                            <Badge key={dc.id} variant="outline" className="font-mono text-xs">
-                              {dc.id}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="py-8 text-center text-muted-foreground border border-dashed border-border/50 rounded-lg">
-            No analytics mapped for {platform} with these data components.
-          </div>
-        )}
-      </section>
-
-      <section>
-        <div className="flex items-center gap-2 mb-4">
-          <Shield className="w-5 h-5 text-violet-400" />
-          <h2 className="text-xl font-semibold text-foreground">Coverage Summary</h2>
-        </div>
-
-        <Card className="bg-gradient-to-br from-violet-500/10 via-transparent to-emerald-500/10 border-violet-500/20">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <div className="text-sm text-muted-foreground mb-1">Detection Coverage Score</div>
-                <div className="text-4xl font-bold text-foreground">{coverageScore}%</div>
-              </div>
-              <div className="w-16 h-16 rounded-full bg-violet-500/20 flex items-center justify-center">
-                <Zap className="w-8 h-8 text-violet-400" />
-              </div>
-            </div>
-            
-            <Progress value={coverageScore} className="h-2 mb-6" />
-            
-            <div className="grid grid-cols-3 gap-4 text-center py-4 border-t border-border/30">
-              <div>
-                <div className="text-2xl font-bold text-blue-400">{filteredDataComponents.length}</div>
-                <div className="text-xs text-muted-foreground mt-1">Data Components</div>
-              </div>
-              <div>
-                <div className="text-2xl font-bold text-amber-400">{filteredAnalytics.length}</div>
-                <div className="text-xs text-muted-foreground mt-1">Analytics</div>
-              </div>
-              <div>
-                <div className="text-2xl font-bold text-red-400">{coveredTechniques.length}</div>
-                <div className="text-xs text-muted-foreground mt-1">Techniques</div>
-              </div>
-            </div>
-
-            {coveredTechniques.length > 0 && (
-              <div className="mt-4 pt-4 border-t border-border/30">
-                <div className="text-[11px] uppercase tracking-wider text-muted-foreground/70 mb-3">Covered Techniques</div>
-                <div className="flex flex-wrap gap-2">
-                  {coveredTechniques.map(t => (
-                    <a
-                      key={t.id}
-                      href={`https://attack.mitre.org/techniques/${t.id.replace('.', '/')}/`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-background/50 border border-border/50 hover:border-emerald-500/30 transition-colors group"
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                      <span className="font-mono text-xs text-red-400">{t.id}</span>
-                      <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">{t.name}</span>
-                    </a>
-                  ))}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </section>
+      <aside className="w-52 flex-shrink-0 border-l border-border p-6 sticky top-0 h-screen overflow-auto hidden xl:block">
+        <h3 className="text-sm font-medium text-foreground mb-3">On this page</h3>
+        <nav className="space-y-1">
+          {tocItems.map(item => (
+            <a
+              key={item.id}
+              href={`#${item.id}`}
+              className={cn(
+                "block text-sm py-1.5 transition-colors",
+                activeSection === item.id
+                  ? "text-primary font-medium"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+              onClick={() => setActiveSection(item.id)}
+            >
+              {item.label}
+            </a>
+          ))}
+        </nav>
+      </aside>
     </div>
   );
 }
