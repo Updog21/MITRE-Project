@@ -5,10 +5,8 @@ import { Progress } from '@/components/ui/progress';
 import { 
   ChevronRight,
   ExternalLink,
-  ChevronDown,
   Database,
   Layers,
-  Code,
   Terminal,
   Monitor,
   Cloud,
@@ -145,28 +143,6 @@ function DataComponentDetail({
             )}
           </div>
 
-          <div>
-            <h3 className="text-sm font-semibold text-foreground mb-3">Mutable Elements</h3>
-            <div className="border border-border rounded-md overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/50">
-                  <tr>
-                    <th className="text-left px-4 py-2 font-medium text-muted-foreground w-40">Field</th>
-                    <th className="text-left px-4 py-2 font-medium text-muted-foreground">Description</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {dc.mutableElements.map(me => (
-                    <tr key={me.name}>
-                      <td className="px-4 py-2 font-mono text-primary">{me.name}</td>
-                      <td className="px-4 py-2 text-foreground">{me.description}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
           <div className="pt-4 border-t border-border">
             <a
               href={`https://attack.mitre.org/datasources/${dc.dataSource.replace(/\s+/g, '%20')}/`}
@@ -196,20 +172,35 @@ export function ProductView({ product, onBack }: ProductViewProps) {
 
   const getLogSourcesForAnalytic = (analytic: AnalyticItem): LogSourceRow[] => {
     const rows: LogSourceRow[] = [];
+    const prefixes = getPlatformPrefixes(platform);
     
     analytic.dataComponents.forEach((dcId: string) => {
       const dc = dataComponents[dcId];
       if (!dc) return;
       
-      const platformMappings = dc.platforms.filter(p => p.platform === platform);
-      platformMappings.forEach(mapping => {
-        rows.push({
-          dataComponentId: dc.id,
-          dataComponentName: dc.name,
-          logSourceName: mapping.logSourceName,
-          channel: mapping.logChannel || '-',
+      if (dc.logSources && dc.logSources.length > 0) {
+        const filteredSources = dc.logSources.filter(ls => 
+          prefixes.some(prefix => ls.name.toLowerCase().startsWith(prefix.toLowerCase()))
+        );
+        filteredSources.forEach(ls => {
+          rows.push({
+            dataComponentId: dc.id,
+            dataComponentName: dc.name,
+            logSourceName: ls.name,
+            channel: ls.channel,
+          });
         });
-      });
+      } else {
+        const platformMappings = dc.platforms.filter(p => p.platform === platform);
+        platformMappings.forEach(mapping => {
+          rows.push({
+            dataComponentId: dc.id,
+            dataComponentName: dc.name,
+            logSourceName: mapping.logSourceName,
+            channel: mapping.logChannel || '-',
+          });
+        });
+      }
     });
     
     return rows;
@@ -495,17 +486,6 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                                           </div>
                                         )}
 
-                                        {analytic.pseudocode && (
-                                          <div>
-                                            <h5 className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
-                                              <Code className="w-4 h-4" />
-                                              Detection Logic
-                                            </h5>
-                                            <pre className="p-3 rounded-md bg-slate-900 text-slate-100 text-xs font-mono overflow-x-auto leading-relaxed">
-                                              {analytic.pseudocode}
-                                            </pre>
-                                          </div>
-                                        )}
                                       </div>
                                     )}
                                   </div>
