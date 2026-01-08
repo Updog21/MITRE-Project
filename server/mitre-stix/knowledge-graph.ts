@@ -475,24 +475,8 @@ export class MitreKnowledgeGraph {
       coverage: string;
     }>;
   } {
-    const seenStrategies = new Set<string>();
     const seenDataComponents = new Set<string>();
     const seenCarAnalytics = new Set<string>();
-    
-    const strategies: Array<{
-      id: string;
-      name: string;
-      description: string;
-      techniques: string[];
-      analytics: Array<{
-        id: string;
-        name: string;
-        description: string;
-        platforms: string[];
-        dataComponents: string[];
-      }>;
-      source: 'stix' | 'stix_parent';
-    }> = [];
     
     const dataComponents: Array<{
       id: string;
@@ -509,6 +493,21 @@ export class MitreKnowledgeGraph {
       coverage: string;
     }> = [];
     
+    const strategyOutputMap = new Map<string, {
+      id: string;
+      name: string;
+      description: string;
+      techniques: Set<string>;
+      analytics: Array<{
+        id: string;
+        name: string;
+        description: string;
+        platforms: string[];
+        dataComponents: string[];
+      }>;
+      source: 'stix' | 'stix_parent';
+    }>();
+    
     for (const techId of techniqueIds) {
       const normalized = techId.toUpperCase();
       
@@ -517,8 +516,14 @@ export class MitreKnowledgeGraph {
       const strategyStixIds = this.getStrategiesForTechniqueWithFallback(normalized);
       
       for (const stratStixId of strategyStixIds) {
-        if (seenStrategies.has(stratStixId)) continue;
-        seenStrategies.add(stratStixId);
+        if (strategyOutputMap.has(stratStixId)) {
+          const existing = strategyOutputMap.get(stratStixId)!;
+          existing.techniques.add(normalized);
+          if (usedParentFallback && existing.source === 'stix') {
+            existing.source = 'stix_parent';
+          }
+          continue;
+        }
         
         const strategy = this.strategyMap.get(stratStixId);
         if (!strategy) continue;
@@ -562,11 +567,14 @@ export class MitreKnowledgeGraph {
         }
         
         if (analyticsForStrategy.length > 0) {
-          strategies.push({
+          const techniquesSet = new Set(strategy.techniques);
+          techniquesSet.add(normalized);
+          
+          strategyOutputMap.set(stratStixId, {
             id: strategy.id,
             name: strategy.name,
             description: strategy.description,
-            techniques: usedParentFallback ? [normalized, ...strategy.techniques] : strategy.techniques,
+            techniques: techniquesSet,
             analytics: analyticsForStrategy,
             source: usedParentFallback ? 'stix_parent' : 'stix',
           });
@@ -593,6 +601,11 @@ export class MitreKnowledgeGraph {
         });
       }
     }
+    
+    const strategies = Array.from(strategyOutputMap.values()).map(s => ({
+      ...s,
+      techniques: Array.from(s.techniques),
+    }));
     
     return { detectionStrategies: strategies, dataComponents, carAnalytics };
   }
