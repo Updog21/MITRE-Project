@@ -265,8 +265,8 @@ export function ProductView({ product, onBack }: ProductViewProps) {
 
   const tocItems = [
     { id: 'overview', label: 'Overview' },
-    { id: 'detection-strategies', label: 'Detection Strategies' },
     { id: 'coverage', label: 'Coverage Summary' },
+    { id: 'detection-strategies', label: 'Detection Strategies' },
   ];
 
   return (
@@ -315,7 +315,49 @@ export function ProductView({ product, onBack }: ProductViewProps) {
             </div>
           </header>
 
-          <section className="mb-10" id="detection-strategies">
+          <section className="mb-10" id="coverage">
+            <h2 className="text-xl font-semibold text-foreground mb-4">Coverage Summary</h2>
+            
+            <div className="p-6 rounded-lg border border-border bg-card">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <div className="text-sm text-muted-foreground mb-1">Detection Coverage</div>
+                  <div className="text-4xl font-bold text-foreground">{coverageScore}%</div>
+                </div>
+              </div>
+              
+              <Progress value={coverageScore} className="h-2 mb-6" />
+              
+              <p className="text-sm text-muted-foreground mb-6">
+                This product maps to <strong className="text-foreground">{filteredStrategies.length} detection strategies</strong> for {platform}, 
+                containing <strong className="text-foreground">{totalAnalytics} analytics</strong> that 
+                cover <strong className="text-foreground">{coveredTechniques.length} ATT&CK techniques</strong>.
+              </p>
+
+              {coveredTechniques.length > 0 && (
+                <div className="pt-4 border-t border-border">
+                  <h4 className="text-sm font-medium text-foreground mb-3">Covered Techniques</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {coveredTechniques.map(t => (
+                      <a
+                        key={t.id}
+                        href={`https://attack.mitre.org/techniques/${t.id.replace('.', '/')}/`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2 p-2 rounded border border-border hover:border-primary/30 hover:bg-muted/50 transition-colors group"
+                      >
+                        <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
+                        <code className="text-xs font-mono text-red-600">{t.id}</code>
+                        <span className="text-sm text-muted-foreground group-hover:text-foreground transition-colors truncate">{t.name}</span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section id="detection-strategies">
             <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
               <Shield className="w-5 h-5 text-primary" />
               Detection Strategies
@@ -504,48 +546,6 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                 No detection strategies found for {product.productName} on {platform}.
               </div>
             )}
-          </section>
-
-          <section id="coverage">
-            <h2 className="text-xl font-semibold text-foreground mb-4">Coverage Summary</h2>
-            
-            <div className="p-6 rounded-lg border border-border bg-card">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <div className="text-sm text-muted-foreground mb-1">Detection Coverage</div>
-                  <div className="text-4xl font-bold text-foreground">{coverageScore}%</div>
-                </div>
-              </div>
-              
-              <Progress value={coverageScore} className="h-2 mb-6" />
-              
-              <p className="text-sm text-muted-foreground mb-6">
-                This product maps to <strong className="text-foreground">{filteredStrategies.length} detection strategies</strong> for {platform}, 
-                containing <strong className="text-foreground">{totalAnalytics} analytics</strong> that 
-                cover <strong className="text-foreground">{coveredTechniques.length} ATT&CK techniques</strong>.
-              </p>
-
-              {coveredTechniques.length > 0 && (
-                <div className="pt-4 border-t border-border">
-                  <h4 className="text-sm font-medium text-foreground mb-3">Covered Techniques</h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {coveredTechniques.map(t => (
-                      <a
-                        key={t.id}
-                        href={`https://attack.mitre.org/techniques/${t.id.replace('.', '/')}/`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 p-2 rounded border border-border hover:border-primary/30 hover:bg-muted/50 transition-colors group"
-                      >
-                        <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
-                        <code className="text-xs font-mono text-red-600">{t.id}</code>
-                        <span className="text-sm text-muted-foreground group-hover:text-foreground transition-colors truncate">{t.name}</span>
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
           </section>
         </div>
       </div>
