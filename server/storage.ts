@@ -56,6 +56,9 @@ export interface IStorage {
   getMitreAssetById(assetId: string): Promise<MitreAsset | undefined>;
   createMitreAsset(asset: InsertMitreAsset): Promise<MitreAsset>;
   bulkCreateMitreAssets(assetList: InsertMitreAsset[]): Promise<void>;
+  
+  // Hybrid Selector operations
+  updateProductHybridSelector(productId: string, selectorType: string, selectorValue: string): Promise<Product | undefined>;
 }
 
 export class PostgresStorage implements IStorage {
@@ -180,6 +183,18 @@ export class PostgresStorage implements IStorage {
     if (assetList.length > 0) {
       await db.insert(mitreAssets).values(assetList).onConflictDoNothing();
     }
+  }
+
+  // Hybrid Selector operations
+  async updateProductHybridSelector(productId: string, selectorType: string, selectorValue: string): Promise<Product | undefined> {
+    const result = await db.update(products)
+      .set({ 
+        hybridSelectorType: selectorType,
+        hybridSelectorValue: selectorValue
+      })
+      .where(eq(products.productId, productId))
+      .returning();
+    return result[0];
   }
 }
 

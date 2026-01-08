@@ -149,6 +149,7 @@ export class MitreKnowledgeGraph {
       console.log(`[-] Loaded ${stixBundle.objects.length} STIX objects`);
       
       this.buildIndexes(stixBundle);
+      this.buildAssetStixIdIndex(stixBundle);
       
       if (carResponse.ok) {
         const carData: CarData = await carResponse.json();
@@ -618,6 +619,77 @@ export class MitreKnowledgeGraph {
       dataComponents: this.dataComponentMap.size,
       dataSources: this.dataSourceMap.size,
     };
+  }
+
+  private assetStixIdMap: Map<string, string> = new Map();
+
+  private buildAssetStixIdIndex(bundle: StixBundle): void {
+    for (const obj of bundle.objects) {
+      if (obj.type === 'x-mitre-asset') {
+        const stixObj = obj as StixObject;
+        const externalId = this.getExternalId(stixObj);
+        if (externalId && stixObj.name) {
+          this.assetStixIdMap.set(stixObj.name.toLowerCase(), stixObj.id);
+        }
+      }
+    }
+  }
+
+  getTechniquesByAsset(assetName: string): TechniqueInfo[] {
+    const techniques: TechniqueInfo[] = [];
+    const assetNameLower = assetName.toLowerCase();
+    
+    this.techniqueToAssets.forEach((assetStixIds, techId) => {
+      for (const assetStixId of assetStixIds) {
+        let matches = false;
+        
+        this.assetStixIdMap.forEach((stixId, name) => {
+          if (stixId === assetStixId && name.includes(assetNameLower)) {
+            matches = true;
+          }
+        });
+        
+        if (!matches) {
+          if (assetStixId.toLowerCase().includes(assetNameLower)) {
+            matches = true;
+          }
+        }
+        
+        if (matches) {
+          const tech = this.techniqueMap.get(techId);
+          if (tech) {
+            techniques.push(tech);
+          }
+          break;
+        }
+      }
+    });
+    
+    return techniques;
+  }
+
+  getTechniquesByPlatform(platformName: string): TechniqueInfo[] {
+    const techniques: TechniqueInfo[] = [];
+    const platformLower = platformName.toLowerCase();
+    
+    this.techniqueMap.forEach((tech) => {
+      for (const platform of tech.platforms) {
+        if (platform.toLowerCase().includes(platformLower) || platformLower.includes(platform.toLowerCase())) {
+          techniques.push(tech);
+          break;
+        }
+      }
+    });
+    
+    return techniques;
+  }
+
+  getTechniquesByHybridSelector(selectorType: 'asset' | 'platform', selectorValue: string): string[] {
+    if (selectorType === 'asset') {
+      return this.getTechniquesByAsset(selectorValue).map(t => t.id);
+    } else {
+      return this.getTechniquesByPlatform(selectorValue).map(t => t.id);
+    }
   }
 }
 

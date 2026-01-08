@@ -319,5 +319,70 @@ export async function registerRoutes(
     }
   });
 
+  // Hybrid Selector endpoints
+  
+  // Get hybrid selector options (master list)
+  app.get("/api/hybrid-selector/options", async (req, res) => {
+    const options = [
+      { label: "Firewall / Security Appliance", type: "asset", value: "Firewall" },
+      { label: "Router / Gateway", type: "asset", value: "Router" },
+      { label: "Network Switch", type: "asset", value: "Switch" },
+      { label: "Server (Physical/Virtual)", type: "asset", value: "Server" },
+      { label: "Domain Controller / Identity Provider", type: "platform", value: "Identity Provider" },
+      { label: "Cloud Environment (AWS/Azure/GCP)", type: "platform", value: "IaaS" },
+      { label: "SaaS Application (M365/Salesforce)", type: "platform", value: "SaaS" },
+      { label: "Windows Endpoint", type: "platform", value: "Windows" },
+      { label: "Linux Server/Endpoint", type: "platform", value: "Linux" },
+      { label: "macOS Endpoint", type: "platform", value: "macOS" },
+      { label: "Container / Kubernetes", type: "platform", value: "Containers" },
+    ];
+    res.json(options);
+  });
+
+  // Get techniques by hybrid selector
+  app.post("/api/mitre-stix/techniques/by-selector", async (req, res) => {
+    try {
+      await mitreKnowledgeGraph.ensureInitialized();
+      const { selectorType, selectorValue } = req.body;
+      
+      if (!selectorType || !selectorValue) {
+        return res.status(400).json({ error: "selectorType and selectorValue are required" });
+      }
+      
+      if (selectorType !== 'asset' && selectorType !== 'platform') {
+        return res.status(400).json({ error: "selectorType must be 'asset' or 'platform'" });
+      }
+      
+      const techniqueIds = mitreKnowledgeGraph.getTechniquesByHybridSelector(selectorType, selectorValue);
+      res.json({ techniqueIds, count: techniqueIds.length });
+    } catch (error) {
+      console.error("Error getting techniques by selector:", error);
+      res.status(500).json({ error: "Failed to get techniques" });
+    }
+  });
+
+  // Update product hybrid selector
+  app.patch("/api/products/:productId/hybrid-selector", async (req, res) => {
+    try {
+      const { productId } = req.params;
+      const { hybridSelectorType, hybridSelectorValue } = req.body;
+      
+      if (!hybridSelectorType || !hybridSelectorValue) {
+        return res.status(400).json({ error: "hybridSelectorType and hybridSelectorValue are required" });
+      }
+      
+      const updated = await storage.updateProductHybridSelector(productId, hybridSelectorType, hybridSelectorValue);
+      
+      if (!updated) {
+        return res.status(404).json({ error: "Product not found" });
+      }
+      
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating product hybrid selector:", error);
+      res.status(500).json({ error: "Failed to update product" });
+    }
+  });
+
   return httpServer;
 }
