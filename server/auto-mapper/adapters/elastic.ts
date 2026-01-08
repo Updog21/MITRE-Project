@@ -132,9 +132,20 @@ export class ElasticAdapter implements ResourceAdapter {
       const queryMatch = toml.match(/query\s*=\s*'''([\s\S]*?)'''|query\s*=\s*"([^"]+)"/);
       if (queryMatch) rule.query = (queryMatch[1] || queryMatch[2])?.trim();
 
-      const techniqueMatches = toml.matchAll(/\[rule\.threat\.technique\]\s*id\s*=\s*"([^"]+)"\s*name\s*=\s*"([^"]+)"/g);
       rule.threat = [];
+      
+      const techniqueBlockRegex = /\[\[rule\.threat\.technique\]\]\s*\n\s*id\s*=\s*"([^"]+)"\s*\n\s*name\s*=\s*"([^"]+)"/g;
+      const techniqueMatches = Array.from(toml.matchAll(techniqueBlockRegex));
       for (const match of techniqueMatches) {
+        rule.threat.push({
+          framework: 'MITRE ATT&CK',
+          technique: [{ id: match[1], name: match[2] }],
+        });
+      }
+      
+      const subtechniqueRegex = /\[\[rule\.threat\.technique\.subtechnique\]\]\s*\n\s*id\s*=\s*"([^"]+)"\s*\n\s*name\s*=\s*"([^"]+)"/g;
+      const subtechniqueMatches = Array.from(toml.matchAll(subtechniqueRegex));
+      for (const match of subtechniqueMatches) {
         rule.threat.push({
           framework: 'MITRE ATT&CK',
           technique: [{ id: match[1], name: match[2] }],
@@ -189,7 +200,7 @@ export class ElasticAdapter implements ResourceAdapter {
       confidence: Math.min(100, rules.length * 8),
       detectionStrategies: Array.from(techniqueIds).map(t => `DS-${t}`),
       analytics,
-      dataComponents: [...new Map(dataComponents.map(dc => [dc.id, dc])).values()],
+      dataComponents: Array.from(new Map(dataComponents.map(dc => [dc.id, dc])).values()),
       rawData: rules,
     };
   }

@@ -251,11 +251,19 @@ export function ProductView({ product, onBack }: ProductViewProps) {
 
   const totalAnalytics = filteredStrategies.reduce((sum, s) => sum + s.analytics.length, 0);
   
+  const communityStrategiesCount = autoMapping.enrichedMapping?.detectionStrategies?.length || 0;
+  const communityAnalyticsCount = autoMapping.enrichedMapping?.detectionStrategies?.reduce(
+    (sum, s) => sum + s.analytics.length, 0
+  ) || 0;
+  
   const coveredTechniques = useMemo(() => {
     const techIds = new Set<string>();
     filteredStrategies.forEach(s => s.techniques.forEach(t => techIds.add(t)));
+    if (autoMapping.enrichedMapping?.detectionStrategies) {
+      autoMapping.enrichedMapping.detectionStrategies.forEach(s => s.techniques.forEach(t => techIds.add(t)));
+    }
     return techniques.filter(t => techIds.has(t.id));
-  }, [filteredStrategies]);
+  }, [filteredStrategies, autoMapping.enrichedMapping]);
 
   const coverageScore = Math.min(100, totalAnalytics * 15 + filteredStrategies.length * 10);
 
@@ -310,16 +318,6 @@ export function ProductView({ product, onBack }: ProductViewProps) {
               <Badge variant="outline" className="text-xs">
                 CTID Native
               </Badge>
-              {autoMapping.data?.status === 'matched' && autoMapping.data.source && (
-                <Badge 
-                  className={cn(
-                    "text-xs text-white",
-                    RESOURCE_LABELS[autoMapping.data.source]?.color || 'bg-gray-500'
-                  )}
-                >
-                  + {RESOURCE_LABELS[autoMapping.data.source]?.label || autoMapping.data.source}
-                </Badge>
-              )}
               {autoMapping.isAutoRunning && (
                 <Badge variant="outline" className="text-xs text-blue-600 border-blue-600">
                   <Loader2 className="w-3 h-3 mr-1 animate-spin" />
@@ -337,11 +335,25 @@ export function ProductView({ product, onBack }: ProductViewProps) {
             
             <div className="mt-6 grid grid-cols-3 gap-4">
               <div className="p-4 rounded-lg border border-border bg-muted/30">
-                <div className="text-2xl font-semibold text-foreground">{filteredStrategies.length}</div>
+                <div className="text-2xl font-semibold text-foreground">
+                  {filteredStrategies.length + communityStrategiesCount}
+                  {communityStrategiesCount > 0 && (
+                    <span className="text-sm font-normal text-muted-foreground ml-1">
+                      ({filteredStrategies.length} + {communityStrategiesCount})
+                    </span>
+                  )}
+                </div>
                 <div className="text-sm text-muted-foreground">Detection Strategies</div>
               </div>
               <div className="p-4 rounded-lg border border-border bg-muted/30">
-                <div className="text-2xl font-semibold text-foreground">{totalAnalytics}</div>
+                <div className="text-2xl font-semibold text-foreground">
+                  {totalAnalytics + communityAnalyticsCount}
+                  {communityAnalyticsCount > 0 && (
+                    <span className="text-sm font-normal text-muted-foreground ml-1">
+                      ({totalAnalytics} + {communityAnalyticsCount})
+                    </span>
+                  )}
+                </div>
                 <div className="text-sm text-muted-foreground">Analytics</div>
               </div>
               <div className="p-4 rounded-lg border border-border bg-muted/30">
@@ -645,11 +657,6 @@ export function ProductView({ product, onBack }: ProductViewProps) {
             <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
               <Zap className="w-5 h-5 text-primary" />
               Additional Coverage from Community Resources
-              {autoMapping.enrichedMapping && (
-                <Badge className={cn("text-white ml-2", RESOURCE_LABELS[autoMapping.enrichedMapping.source]?.color || 'bg-gray-500')}>
-                  {RESOURCE_LABELS[autoMapping.enrichedMapping.source]?.label}
-                </Badge>
-              )}
             </h2>
             <p className="text-muted-foreground mb-6">
               Detection strategies derived from techniques discovered in community detection rules (Sigma, Elastic, Splunk).
@@ -683,9 +690,6 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                           <div className="flex items-center gap-2 mb-1">
                             <code className="text-xs text-primary font-mono">{strategy.id}</code>
                             <span className="font-semibold text-foreground">{strategy.name}</span>
-                            <Badge className={cn("text-white text-[10px]", RESOURCE_LABELS[autoMapping.enrichedMapping!.source]?.color || 'bg-gray-500')}>
-                              {RESOURCE_LABELS[autoMapping.enrichedMapping!.source]?.label}
-                            </Badge>
                           </div>
                           <p className="text-sm text-muted-foreground line-clamp-1">{strategy.description}</p>
                         </div>
@@ -821,23 +825,40 @@ export function ProductView({ product, onBack }: ProductViewProps) {
               </div>
             )}
 
-            {autoMapping.enrichedMapping && autoMapping.enrichedMapping.detectionStrategies.length === 0 && autoMapping.enrichedMapping.techniqueIds.length > 0 && (
+            {autoMapping.data?.status === 'matched' && !autoMapping.isLoading && autoMapping.enrichedMapping && autoMapping.enrichedMapping.detectionStrategies.length === 0 && autoMapping.enrichedMapping.techniqueIds.length === 0 && (
+              <div className="py-8 text-center border border-dashed border-border rounded-lg">
+                <p className="text-muted-foreground">Found community references, but no MITRE ATT&CK technique IDs could be extracted from the detection rules.</p>
+              </div>
+            )}
+
+            {autoMapping.data?.status === 'matched' && !autoMapping.isLoading && autoMapping.enrichedMapping && autoMapping.enrichedMapping.detectionStrategies.length === 0 && autoMapping.enrichedMapping.techniqueIds.length > 0 && (
               <div className="p-4 rounded-lg border border-border bg-card">
-                <p className="text-sm text-muted-foreground mb-3">
-                  Found <strong>{autoMapping.enrichedMapping.techniqueIds.length}</strong> techniques from {RESOURCE_LABELS[autoMapping.enrichedMapping.source]?.label}, but no matching detection strategies in our knowledge base.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {autoMapping.enrichedMapping.techniqueIds.slice(0, 10).map(techId => (
-                    <a
-                      key={techId}
-                      href={`https://attack.mitre.org/techniques/${techId.replace('.', '/')}/`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 px-2 py-1 rounded border border-border bg-muted/50 hover:border-primary/30 text-xs font-mono text-red-600 hover:underline"
-                    >
-                      {techId}
-                    </a>
-                  ))}
+                <div className="flex items-start gap-3">
+                  <Info className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm text-muted-foreground mb-3">
+                      Found <strong className="text-foreground">{autoMapping.enrichedMapping.techniqueIds.length}</strong> technique references from {RESOURCE_LABELS[autoMapping.enrichedMapping.source]?.label}, but these techniques don't have detection strategies defined in the MITRE ATT&CK STIX v18 knowledge base. Not all ATT&CK techniques have corresponding detection strategies.
+                    </p>
+                    <p className="text-xs text-muted-foreground mb-3">
+                      The community detection rules still provide value - they show this product is referenced in active threat detection content.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {autoMapping.enrichedMapping.techniqueIds.slice(0, 10).map(techId => (
+                        <a
+                          key={techId}
+                          href={`https://attack.mitre.org/techniques/${techId.replace('.', '/')}/`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded border border-border bg-muted/50 hover:border-primary/30 text-xs font-mono text-red-600 hover:underline"
+                        >
+                          {techId}
+                        </a>
+                      ))}
+                      {autoMapping.enrichedMapping.techniqueIds.length > 10 && (
+                        <span className="text-xs text-muted-foreground">+{autoMapping.enrichedMapping.techniqueIds.length - 10} more</span>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -849,6 +870,12 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                 <p className="text-sm text-muted-foreground mt-1">
                   This product requires AI-assisted mapping to determine detection coverage.
                 </p>
+              </div>
+            )}
+
+            {autoMapping.data?.status === 'not_found' && (
+              <div className="py-8 text-center border border-dashed border-border rounded-lg">
+                <p className="text-muted-foreground">No references to this product found in community detection rule repositories (Sigma, Elastic, Splunk).</p>
               </div>
             )}
 

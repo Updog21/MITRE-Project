@@ -123,6 +123,7 @@ export function useAutoMappingWithAutoRun(productId: string, platform?: string) 
   });
 
   const shouldAutoRun = statusQuery.isSuccess && 
+                        !statusQuery.isFetching &&
                         statusQuery.data === null && 
                         !autoRunMutation.isPending && 
                         !autoRunMutation.isSuccess &&
