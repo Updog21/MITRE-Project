@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Asset, getDetectionStrategiesForProduct, dataComponents, techniques, DetectionStrategy, AnalyticItem } from '@/lib/mitreData';
+import { Asset, getDetectionStrategiesForProduct, dataComponents, techniques, DetectionStrategy, AnalyticItem, DataComponentRef } from '@/lib/mitreData';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { 
@@ -14,7 +14,9 @@ import {
   Cloud,
   CheckCircle2,
   ArrowLeft,
-  Shield
+  Shield,
+  X,
+  Info
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -44,10 +46,149 @@ interface MutableElementRow {
   description: string;
 }
 
+function getPlatformPrefixes(platform: string): string[] {
+  switch (platform) {
+    case 'Windows': return ['WinEventLog:', 'windows:'];
+    case 'Linux': return ['auditd:', 'linux:', 'ebpf:'];
+    case 'macOS': return ['macos:'];
+    case 'ESXi': return ['esxi:'];
+    case 'Azure AD': return ['azuread:', 'AWS:', 'azure:'];
+    default: return [];
+  }
+}
+
+function DataComponentDetail({ 
+  dc, 
+  platform, 
+  onClose 
+}: { 
+  dc: DataComponentRef; 
+  platform: string; 
+  onClose: () => void;
+}) {
+  const prefixes = getPlatformPrefixes(platform);
+  
+  const filteredLogSources = dc.logSources?.filter(ls => 
+    prefixes.some(prefix => ls.name.toLowerCase().startsWith(prefix.toLowerCase()))
+  ) || [];
+  
+  const platformMeasure = dc.dataCollectionMeasures?.find(m => m.platform === platform);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div 
+        className="bg-background border border-border rounded-lg max-w-3xl w-full max-h-[85vh] overflow-auto shadow-xl"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="sticky top-0 bg-background border-b border-border px-6 py-4 flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <code className="text-sm text-primary font-mono">{dc.id}</code>
+              <Badge variant="secondary" className="text-xs">{platform}</Badge>
+            </div>
+            <h2 className="text-xl font-semibold text-foreground">{dc.name}</h2>
+          </div>
+          <button 
+            onClick={onClose}
+            className="p-2 hover:bg-muted rounded-md transition-colors"
+            data-testid="button-close-dc-detail"
+          >
+            <X className="w-5 h-5 text-muted-foreground" />
+          </button>
+        </div>
+        
+        <div className="p-6 space-y-6">
+          <div>
+            <p className="text-foreground leading-relaxed">{dc.description}</p>
+          </div>
+
+          {platformMeasure && (
+            <div>
+              <h3 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
+                <Info className="w-4 h-4 text-primary" />
+                Data Collection Measures ({platform})
+              </h3>
+              <div className="bg-muted/30 border border-border rounded-md p-4">
+                <p className="text-sm text-foreground">{platformMeasure.description}</p>
+              </div>
+            </div>
+          )}
+
+          <div>
+            <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+              <Database className="w-4 h-4 text-primary" />
+              Log Sources ({platform})
+            </h3>
+            {filteredLogSources.length > 0 ? (
+              <div className="border border-border rounded-md overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="text-left px-4 py-2 font-medium text-muted-foreground">Name</th>
+                      <th className="text-left px-4 py-2 font-medium text-muted-foreground">Channel</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {filteredLogSources.map((ls, idx) => (
+                      <tr key={idx}>
+                        <td className="px-4 py-2 font-mono text-foreground">{ls.name}</td>
+                        <td className="px-4 py-2 text-muted-foreground">{ls.channel}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground border border-dashed border-border rounded-md p-4 text-center">
+                No log sources defined for {platform} in this data component.
+              </div>
+            )}
+          </div>
+
+          <div>
+            <h3 className="text-sm font-semibold text-foreground mb-3">Mutable Elements</h3>
+            <div className="border border-border rounded-md overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left px-4 py-2 font-medium text-muted-foreground w-40">Field</th>
+                    <th className="text-left px-4 py-2 font-medium text-muted-foreground">Description</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {dc.mutableElements.map(me => (
+                    <tr key={me.name}>
+                      <td className="px-4 py-2 font-mono text-primary">{me.name}</td>
+                      <td className="px-4 py-2 text-foreground">{me.description}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-border">
+            <a
+              href={`https://attack.mitre.org/datasources/${dc.dataSource.replace(/\s+/g, '%20')}/`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-primary hover:underline flex items-center gap-1"
+            >
+              View on MITRE ATT&CK
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ProductView({ product, onBack }: ProductViewProps) {
   const [expandedStrategies, setExpandedStrategies] = useState<Set<string>>(new Set());
   const [expandedAnalytics, setExpandedAnalytics] = useState<Set<string>>(new Set());
   const [activeSection, setActiveSection] = useState('overview');
+  const [selectedDataComponent, setSelectedDataComponent] = useState<DataComponentRef | null>(null);
   
   const platform = product.platforms[0];
   
@@ -308,9 +449,18 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                                               <tbody className="divide-y divide-border">
                                                 {logSources.map((row, idx) => (
                                                   <tr key={`${row.dataComponentId}-${idx}`}>
-                                                    <td className="px-3 py-2 text-foreground">
-                                                      {row.dataComponentName}
-                                                      <span className="text-muted-foreground ml-1">({row.dataComponentId})</span>
+                                                    <td className="px-3 py-2">
+                                                      <button
+                                                        onClick={() => {
+                                                          const dc = dataComponents[row.dataComponentId];
+                                                          if (dc) setSelectedDataComponent(dc);
+                                                        }}
+                                                        className="text-primary hover:underline text-left"
+                                                        data-testid={`button-view-dc-${row.dataComponentId}`}
+                                                      >
+                                                        {row.dataComponentName}
+                                                        <span className="text-muted-foreground ml-1">({row.dataComponentId})</span>
+                                                      </button>
                                                     </td>
                                                     <td className="px-3 py-2 font-mono text-foreground">{row.logSourceName}</td>
                                                     <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{row.channel}</td>
@@ -440,6 +590,14 @@ export function ProductView({ product, onBack }: ProductViewProps) {
           ))}
         </nav>
       </aside>
+
+      {selectedDataComponent && (
+        <DataComponentDetail
+          dc={selectedDataComponent}
+          platform={platform}
+          onClose={() => setSelectedDataComponent(null)}
+        />
+      )}
     </div>
   );
 }

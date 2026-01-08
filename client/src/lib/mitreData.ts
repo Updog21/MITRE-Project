@@ -4,6 +4,16 @@ export interface MutableElement {
   fieldPath?: string;
 }
 
+export interface LogSource {
+  name: string;
+  channel: string;
+}
+
+export interface DataCollectionMeasure {
+  platform: 'Windows' | 'Linux' | 'macOS' | 'ESXi' | 'Azure AD' | 'Network' | 'Cloud' | 'EDR';
+  description: string;
+}
+
 export interface PlatformMapping {
   platform: 'Windows' | 'Linux' | 'macOS' | 'ESXi' | 'Azure AD' | 'Network';
   eventSource: string;
@@ -18,6 +28,8 @@ export interface DataComponentRef {
   name: string;
   description: string;
   dataSource: string;
+  dataCollectionMeasures?: DataCollectionMeasure[];
+  logSources?: LogSource[];
   mutableElements: MutableElement[];
   platforms: PlatformMapping[];
 }
@@ -64,8 +76,33 @@ export const dataComponents: Record<string, DataComponentRef> = {
   'DC0082': {
     id: 'DC0082',
     name: 'Network Connection Creation',
-    description: 'Initial construction of a network connection, such as capturing socket information with a source/destination IP and port(s).',
+    description: 'The initial establishment of a network session, where a system or process initiates a connection to a local or remote endpoint. This typically involves capturing socket information (source/destination IP, ports, protocol) and tracking session metadata. Monitoring these events helps detect lateral movement, exfiltration, and command-and-control (C2) activities.',
     dataSource: 'Network Traffic',
+    dataCollectionMeasures: [
+      { platform: 'Windows', description: 'Event ID 5156 – Filtering Platform Connection - Logs network connections permitted by Windows Filtering Platform (WFP). Sysmon Event ID 3 – Network Connection Initiated - Captures process, source/destination IP, ports, and parent process.' },
+      { platform: 'Linux', description: 'Netfilter (iptables), nftables logs - Tracks incoming and outgoing network connections. AuditD (connect syscall) - Logs TCP, UDP, and ICMP connections. Zeek (conn.log) - Captures protocol, duration, and bytes transferred.' },
+      { platform: 'macOS', description: 'Endpoint Security Framework ES_EVENT_TYPE_NOTIFY_CONNECT - Captures process initiating network connections with full metadata.' },
+      { platform: 'Cloud', description: 'AWS VPC Flow Logs / Azure NSG Flow Logs - Logs IP traffic at the network level in cloud environments.' },
+      { platform: 'EDR', description: 'Detect anomalous network activity such as new C2 connections or data exfiltration attempts.' },
+    ],
+    logSources: [
+      { name: 'WinEventLog:Sysmon', channel: 'EventCode=3, 22' },
+      { name: 'WinEventLog:Security', channel: 'EventCode=5156, 5157' },
+      { name: 'WinEventLog:Microsoft-Windows-WLAN-AutoConfig', channel: 'EventCode=8001, 8002, 8003' },
+      { name: 'WinEventLog:Microsoft-Windows-Bits-Client/Operational', channel: 'BITS job lifecycle events' },
+      { name: 'auditd:SYSCALL', channel: 'connect' },
+      { name: 'auditd:SYSCALL', channel: 'connect/sendto' },
+      { name: 'auditd:SYSCALL', channel: 'socket/connect with TLS context' },
+      { name: 'linux:Sysmon', channel: 'EventCode=3, 22' },
+      { name: 'linux:syslog', channel: 'network' },
+      { name: 'macos:endpointsecurity', channel: 'ES_EVENT_TYPE_NOTIFY_CONNECT' },
+      { name: 'macos:unifiedlog', channel: 'connection attempts' },
+      { name: 'macos:osquery', channel: 'process_events/socket_events' },
+      { name: 'NSM:Flow', channel: 'conn.log' },
+      { name: 'NSM:Flow', channel: 'Outbound connections' },
+      { name: 'AWS:VPCFlowLogs', channel: 'Outbound connection to 169.254.169.254' },
+      { name: 'esxi:vmkernel', channel: 'network activity' },
+    ],
     mutableElements: [
       { name: 'src_ip', description: 'Source IP address of the network connection', fieldPath: 'source.ip' },
       { name: 'dst_ip', description: 'Destination IP address of the network connection', fieldPath: 'destination.ip' },
@@ -79,7 +116,7 @@ export const dataComponents: Record<string, DataComponentRef> = {
       { platform: 'Windows', eventSource: 'Sysmon', logSourceName: 'WinEventLog:Sysmon', eventId: '3', logChannel: 'Microsoft-Windows-Sysmon/Operational', notes: 'Network connection detected' },
       { platform: 'Windows', eventSource: 'Windows Firewall', logSourceName: 'WinEventLog:Security', eventId: '5156', logChannel: 'Security', notes: 'Windows Filtering Platform permitted connection' },
       { platform: 'Linux', eventSource: 'Auditd', logSourceName: 'auditd:SYSCALL', eventId: 'SYSCALL connect', logChannel: '/var/log/audit/audit.log' },
-      { platform: 'macOS', eventSource: 'Endpoint Security', logSourceName: 'endpointsecurity:connect', eventId: 'ES_EVENT_TYPE_NOTIFY_CONNECT' },
+      { platform: 'macOS', eventSource: 'Endpoint Security', logSourceName: 'macos:endpointsecurity', eventId: 'ES_EVENT_TYPE_NOTIFY_CONNECT' },
     ]
   },
   'DC0017': {
