@@ -295,6 +295,11 @@ export function ProductView({ product, onBack }: ProductViewProps) {
               <Badge variant="outline" className="text-xs">
                 CTID Verified
               </Badge>
+              {product.deployment && (
+                <Badge variant="outline" className="text-xs">
+                  {product.deployment}
+                </Badge>
+              )}
             </div>
             <h1 className="text-3xl font-semibold text-foreground mb-2">{product.productName}</h1>
             <p className="text-lg text-muted-foreground">{product.description}</p>
@@ -311,6 +316,32 @@ export function ProductView({ product, onBack }: ProductViewProps) {
               <div className="p-4 rounded-lg border border-border bg-muted/30">
                 <div className="text-2xl font-semibold text-foreground">{coveredTechniques.length}</div>
                 <div className="text-sm text-muted-foreground">Techniques Covered</div>
+              </div>
+            </div>
+
+            <div className="mt-6 p-4 rounded-lg border border-border bg-card">
+              <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                <Database className="w-4 h-4 text-primary" />
+                Mapped Data Components
+              </h3>
+              <p className="text-sm text-muted-foreground mb-3">
+                This asset provides the following telemetry sources:
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {product.dataComponentIds.map(dcId => {
+                  const dc = dataComponents[dcId];
+                  return dc ? (
+                    <button
+                      key={dcId}
+                      onClick={() => setSelectedDataComponent(dc)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-muted/50 hover:bg-muted hover:border-primary/30 transition-colors text-sm"
+                      data-testid={`button-dc-chip-${dcId}`}
+                    >
+                      <code className="text-xs text-primary font-mono">{dcId}</code>
+                      <span className="text-foreground">{dc.name}</span>
+                    </button>
+                  ) : null;
+                })}
               </div>
             </div>
           </header>
