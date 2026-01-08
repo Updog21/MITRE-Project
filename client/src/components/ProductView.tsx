@@ -229,7 +229,7 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                     </button>
 
                     {isExpanded && (
-                      <div className="px-4 pb-4 pt-2 ml-8 border-l-2 border-primary/20 bg-muted/20">
+                      <div className="px-4 pb-4 pt-2 pl-12 bg-muted/20">
                         <p className="text-sm text-muted-foreground mb-4">{dc.description}</p>
                         
                         <table className="w-full text-sm mb-4">
@@ -322,7 +322,7 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                       </button>
 
                       {isExpanded && (
-                        <div className="px-4 pb-4 pt-2 ml-8 border-l-2 border-primary/20 bg-muted/20 space-y-4">
+                        <div className="px-4 pb-4 pt-2 pl-12 bg-muted/20 space-y-4">
                           <p className="text-sm text-muted-foreground">{analytic.description}</p>
 
                           {analytic.pseudocode && (
