@@ -2,6 +2,21 @@ import { db } from '../db';
 import { mitreAssets, detectionStrategies, analytics, dataComponents as dataComponentsTable } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 
+interface CarAnalytic {
+  name: string;
+  shortName: string;
+  fields: string[];
+  attack: Array<{
+    tactics: string[];
+    technique: string;
+    coverage: string;
+  }>;
+}
+
+interface CarData {
+  analytics: CarAnalytic[];
+}
+
 interface StixObject {
   id: string;
   type: string;
@@ -91,6 +106,7 @@ interface LogRequirement {
 
 export class MitreKnowledgeGraph {
   private stixUrl = 'https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/enterprise-attack/enterprise-attack.json';
+  private carUrl = 'https://raw.githubusercontent.com/mitre-attack/car/master/docs/data/analytics.json';
   
   private techniqueMap: Map<string, TechniqueInfo> = new Map();
   private strategyMap: Map<string, StrategyInfo> = new Map();
@@ -102,6 +118,8 @@ export class MitreKnowledgeGraph {
   private strategyToAnalytics: Map<string, string[]> = new Map();
   private analyticToDataComponents: Map<string, string[]> = new Map();
   private techniqueToAssets: Map<string, string[]> = new Map();
+  
+  private techniqueToCarAnalytics: Map<string, CarAnalytic[]> = new Map();
   
   private initialized = false;
   private initPromise: Promise<void> | null = null;
@@ -118,15 +136,28 @@ export class MitreKnowledgeGraph {
     console.log('[-] Downloading MITRE v18 STIX Data...');
     
     try {
-      const response = await fetch(this.stixUrl);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch STIX data: ${response.status}`);
+      const [stixResponse, carResponse] = await Promise.all([
+        fetch(this.stixUrl),
+        fetch(this.carUrl),
+      ]);
+      
+      if (!stixResponse.ok) {
+        throw new Error(`Failed to fetch STIX data: ${stixResponse.status}`);
       }
       
-      const stixBundle: StixBundle = await response.json();
+      const stixBundle: StixBundle = await stixResponse.json();
       console.log(`[-] Loaded ${stixBundle.objects.length} STIX objects`);
       
       this.buildIndexes(stixBundle);
+      
+      if (carResponse.ok) {
+        const carData: CarData = await carResponse.json();
+        this.buildCarIndex(carData);
+        console.log(`[-] Loaded ${carData.analytics.length} CAR analytics`);
+      } else {
+        console.warn('[!] Failed to fetch CAR data, continuing without it');
+      }
+      
       this.initialized = true;
       
       console.log('[+] MITRE Knowledge Graph Ingestion Complete');
@@ -135,9 +166,22 @@ export class MitreKnowledgeGraph {
       console.log(`    Analytics: ${this.analyticMap.size}`);
       console.log(`    Data Components: ${this.dataComponentMap.size}`);
       console.log(`    Data Sources: ${this.dataSourceMap.size}`);
+      console.log(`    CAR Technique Mappings: ${this.techniqueToCarAnalytics.size}`);
     } catch (error) {
       console.error('[!] Failed to ingest MITRE STIX data:', error);
       throw error;
+    }
+  }
+  
+  private buildCarIndex(carData: CarData): void {
+    for (const analytic of carData.analytics) {
+      for (const attack of analytic.attack) {
+        const techId = attack.technique.replace('Technique/', '').toUpperCase();
+        if (!this.techniqueToCarAnalytics.has(techId)) {
+          this.techniqueToCarAnalytics.set(techId, []);
+        }
+        this.techniqueToCarAnalytics.get(techId)!.push(analytic);
+      }
     }
   }
 
@@ -381,6 +425,27 @@ export class MitreKnowledgeGraph {
     return this.techniqueToAssets.get(normalized) || [];
   }
 
+  private getParentTechniqueId(techniqueId: string): string | null {
+    if (techniqueId.includes('.')) {
+      return techniqueId.split('.')[0];
+    }
+    return null;
+  }
+
+  private getStrategiesForTechniqueWithFallback(techniqueId: string): string[] {
+    const normalized = techniqueId.toUpperCase();
+    let strategyStixIds = this.techniqueToStrategies.get(normalized) || [];
+    
+    if (strategyStixIds.length === 0) {
+      const parentId = this.getParentTechniqueId(normalized);
+      if (parentId) {
+        strategyStixIds = this.techniqueToStrategies.get(parentId) || [];
+      }
+    }
+    
+    return strategyStixIds;
+  }
+
   getFullMappingForTechniques(techniqueIds: string[]): {
     detectionStrategies: Array<{
       id: string;
@@ -394,15 +459,25 @@ export class MitreKnowledgeGraph {
         platforms: string[];
         dataComponents: string[];
       }>;
+      source: 'stix' | 'stix_parent';
     }>;
     dataComponents: Array<{
       id: string;
       name: string;
       dataSource: string;
     }>;
+    carAnalytics: Array<{
+      id: string;
+      name: string;
+      shortName: string;
+      techniques: string[];
+      fields: string[];
+      coverage: string;
+    }>;
   } {
     const seenStrategies = new Set<string>();
     const seenDataComponents = new Set<string>();
+    const seenCarAnalytics = new Set<string>();
     
     const strategies: Array<{
       id: string;
@@ -416,6 +491,7 @@ export class MitreKnowledgeGraph {
         platforms: string[];
         dataComponents: string[];
       }>;
+      source: 'stix' | 'stix_parent';
     }> = [];
     
     const dataComponents: Array<{
@@ -424,9 +500,21 @@ export class MitreKnowledgeGraph {
       dataSource: string;
     }> = [];
     
+    const carAnalytics: Array<{
+      id: string;
+      name: string;
+      shortName: string;
+      techniques: string[];
+      fields: string[];
+      coverage: string;
+    }> = [];
+    
     for (const techId of techniqueIds) {
       const normalized = techId.toUpperCase();
-      const strategyStixIds = this.techniqueToStrategies.get(normalized) || [];
+      
+      const directStrategyStixIds = this.techniqueToStrategies.get(normalized) || [];
+      const usedParentFallback = directStrategyStixIds.length === 0;
+      const strategyStixIds = this.getStrategiesForTechniqueWithFallback(normalized);
       
       for (const stratStixId of strategyStixIds) {
         if (seenStrategies.has(stratStixId)) continue;
@@ -478,14 +566,35 @@ export class MitreKnowledgeGraph {
             id: strategy.id,
             name: strategy.name,
             description: strategy.description,
-            techniques: strategy.techniques,
+            techniques: usedParentFallback ? [normalized, ...strategy.techniques] : strategy.techniques,
             analytics: analyticsForStrategy,
+            source: usedParentFallback ? 'stix_parent' : 'stix',
           });
         }
       }
+      
+      const techCarAnalytics = this.techniqueToCarAnalytics.get(normalized) || [];
+      for (const carAnalytic of techCarAnalytics) {
+        if (seenCarAnalytics.has(carAnalytic.name)) continue;
+        seenCarAnalytics.add(carAnalytic.name);
+        
+        const techniques = carAnalytic.attack.map(a => a.technique.replace('Technique/', ''));
+        const coverage = carAnalytic.attack.find(a => 
+          a.technique.replace('Technique/', '').toUpperCase() === normalized
+        )?.coverage || 'Unknown';
+        
+        carAnalytics.push({
+          id: carAnalytic.name,
+          name: carAnalytic.name,
+          shortName: carAnalytic.shortName,
+          techniques,
+          fields: carAnalytic.fields,
+          coverage,
+        });
+      }
     }
     
-    return { detectionStrategies: strategies, dataComponents };
+    return { detectionStrategies: strategies, dataComponents, carAnalytics };
   }
 
   getStats(): { techniques: number; strategies: number; analytics: number; dataComponents: number; dataSources: number } {
