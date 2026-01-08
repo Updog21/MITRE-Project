@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Asset, getDetectionStrategiesForProduct, dataComponents, techniques, DetectionStrategy, AnalyticItem, DataComponentRef, mitreAssets } from '@/lib/mitreData';
+import { Asset, getDetectionStrategiesForProduct, dataComponents, techniques, DetectionStrategy, AnalyticItem, DataComponentRef, mitreAssets, MitreAsset } from '@/lib/mitreData';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { 
@@ -14,7 +14,8 @@ import {
   ArrowLeft,
   Shield,
   X,
-  Info
+  Info,
+  FileText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -165,6 +166,7 @@ export function ProductView({ product, onBack }: ProductViewProps) {
   const [expandedAnalytics, setExpandedAnalytics] = useState<Set<string>>(new Set());
   const [activeSection, setActiveSection] = useState('overview');
   const [selectedDataComponent, setSelectedDataComponent] = useState<DataComponentRef | null>(null);
+  const [selectedMitreAsset, setSelectedMitreAsset] = useState<MitreAsset | null>(null);
   
   const platform = product.platforms[0];
   
@@ -332,19 +334,16 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                   {(product.mitreAssetIds || []).map(assetId => {
                     const asset = mitreAssets[assetId];
                     return asset ? (
-                      <a
+                      <button
                         key={assetId}
-                        href={assetId.startsWith('A0') ? `https://attack.mitre.org/assets/${assetId}` : '#'}
-                        target={assetId.startsWith('A0') ? '_blank' : undefined}
-                        rel="noopener noreferrer"
+                        onClick={() => setSelectedMitreAsset(asset)}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-muted/50 hover:bg-muted hover:border-primary/30 transition-colors text-sm"
-                        title={asset.description}
-                        data-testid={`link-asset-${assetId}`}
+                        data-testid={`button-asset-${assetId}`}
                       >
                         <code className="text-xs text-primary font-mono">{assetId}</code>
                         <span className="text-foreground">{asset.name}</span>
                         <Badge variant="outline" className="text-[10px] px-1 py-0">{asset.domain}</Badge>
-                      </a>
+                      </button>
                     ) : null;
                   })}
                 </div>
@@ -640,6 +639,100 @@ export function ProductView({ product, onBack }: ProductViewProps) {
           platform={platform}
           onClose={() => setSelectedDataComponent(null)}
         />
+      )}
+
+      {selectedMitreAsset && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setSelectedMitreAsset(null)}>
+          <div 
+            className="bg-card border border-border rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] overflow-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6 border-b border-border">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-primary/10">
+                    <Shield className="w-5 h-5 text-primary" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-foreground">{selectedMitreAsset.name}</h2>
+                    <div className="flex items-center gap-2 mt-1">
+                      <code className="text-xs text-primary font-mono bg-muted px-1.5 py-0.5 rounded">{selectedMitreAsset.id}</code>
+                      <Badge variant="outline" className="text-xs">{selectedMitreAsset.domain}</Badge>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedMitreAsset(null)}
+                  className="p-2 hover:bg-muted rounded-md transition-colors"
+                  data-testid="button-close-asset-modal"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-6">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-muted-foreground" />
+                  Description
+                </h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  {selectedMitreAsset.description}
+                </p>
+              </div>
+
+              <div>
+                <h3 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
+                  <Database className="w-4 h-4 text-muted-foreground" />
+                  Asset Classification
+                </h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-3 rounded-lg border border-border bg-muted/30">
+                    <div className="text-xs text-muted-foreground mb-1">Domain</div>
+                    <div className="text-sm font-medium text-foreground">{selectedMitreAsset.domain}</div>
+                  </div>
+                  <div className="p-3 rounded-lg border border-border bg-muted/30">
+                    <div className="text-xs text-muted-foreground mb-1">Asset ID</div>
+                    <div className="text-sm font-medium text-foreground font-mono">{selectedMitreAsset.id}</div>
+                  </div>
+                </div>
+              </div>
+
+              {selectedMitreAsset.id.startsWith('A0') && (
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
+                    <ExternalLink className="w-4 h-4 text-muted-foreground" />
+                    MITRE ATT&CK Reference
+                  </h3>
+                  <a
+                    href={`https://attack.mitre.org/assets/${selectedMitreAsset.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
+                    data-testid="link-mitre-asset-ref"
+                  >
+                    View on MITRE ATT&CK
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              )}
+
+              <div>
+                <h3 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
+                  <Info className="w-4 h-4 text-muted-foreground" />
+                  Detection Relevance
+                </h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  {selectedMitreAsset.domain === 'ICS' 
+                    ? `This is an Industrial Control System (ICS) asset. Detection strategies targeting this asset type focus on operational technology (OT) environments, SCADA systems, and industrial protocols.`
+                    : `This is an Enterprise asset. Detection strategies targeting this asset type focus on corporate IT environments, standard network protocols, and enterprise applications.`
+                  }
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
