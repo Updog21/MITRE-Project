@@ -1,4 +1,5 @@
-import { ProductMapping, DataComponent, Analytic, Technique } from '@/lib/v18Data';
+import { useState } from 'react';
+import { ProductMapping, DataComponent, Analytic, Technique, LogRequirement } from '@/lib/v18Data';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -7,17 +8,184 @@ import {
   FileText, 
   Search, 
   Target, 
-  ArrowRight, 
   CheckCircle2, 
   Shield,
-  AlertTriangle,
-  Zap
+  Zap,
+  ChevronDown,
+  ChevronRight,
+  Code,
+  Terminal,
+  Database,
+  AlertCircle,
+  ExternalLink
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 
 interface ValueChainDisplayProps {
   mapping: ProductMapping;
   onBack: () => void;
+}
+
+function LogRequirementCard({ log, index }: { log: LogRequirement; index: number }) {
+  return (
+    <div className="p-3 rounded bg-muted/30 border border-border space-y-2">
+      <div className="flex items-center gap-2">
+        <Terminal className="w-4 h-4 text-cyan-400 flex-shrink-0" />
+        <span className="font-mono text-sm text-cyan-400">{log.channel}</span>
+      </div>
+      <p className="text-xs text-muted-foreground">{log.description}</p>
+      
+      <div className="space-y-2">
+        <div>
+          <span className="text-xs font-medium text-foreground">Event Codes:</span>
+          <div className="flex flex-wrap gap-1 mt-1">
+            {log.eventCodes.map((code) => (
+              <Badge key={code} className="font-mono text-xs bg-orange-500/20 text-orange-400 border-orange-500/30">
+                {code}
+              </Badge>
+            ))}
+          </div>
+        </div>
+        
+        <div>
+          <span className="text-xs font-medium text-foreground">Required Fields:</span>
+          <div className="flex flex-wrap gap-1 mt-1">
+            {log.requiredFields.map((field) => (
+              <Badge key={field} variant="secondary" className="font-mono text-[10px]">
+                {field}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AnalyticDetailCard({ analytic }: { analytic: Analytic }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const hasLogDetails = analytic.logRequirements && analytic.logRequirements.length > 0;
+
+  return (
+    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <div className={cn(
+        "rounded-lg border transition-all",
+        isOpen ? "bg-yellow-500/10 border-yellow-500/40" : "bg-yellow-500/5 border-yellow-500/20",
+        hasLogDetails && "cursor-pointer"
+      )}>
+        <CollapsibleTrigger className="w-full text-left p-3" disabled={!hasLogDetails}>
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <CheckCircle2 className="w-3 h-3 text-yellow-400 flex-shrink-0" />
+                <span className="font-mono text-xs text-yellow-400">{analytic.id}</span>
+                {analytic.detectionStrategyId && (
+                  <Badge className="text-[10px] bg-purple-500/20 text-purple-400 border-purple-500/30">
+                    Detection Strategy
+                  </Badge>
+                )}
+              </div>
+              <div className="text-sm font-medium text-foreground">{analytic.name}</div>
+              <div className="text-xs text-muted-foreground mt-1">{analytic.description}</div>
+              <div className="flex items-center gap-2 mt-2">
+                <Badge variant="secondary" className="text-[10px]">{analytic.source}</Badge>
+                {analytic.detectsTechniques.map(t => (
+                  <Badge key={t} className="text-[10px] bg-red-500/20 text-red-400 border-red-500/30">
+                    {t}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+            {hasLogDetails && (
+              <div className="flex items-center gap-1 text-muted-foreground">
+                <Database className="w-3 h-3" />
+                <span className="text-xs">{analytic.logRequirements?.length} logs</span>
+                {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+              </div>
+            )}
+          </div>
+        </CollapsibleTrigger>
+        
+        <CollapsibleContent>
+          <div className="px-3 pb-3 space-y-3 border-t border-yellow-500/20 pt-3">
+            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <AlertCircle className="w-4 h-4 text-yellow-400" />
+              Log Requirements
+            </div>
+            
+            {analytic.logRequirements?.map((log, idx) => (
+              <LogRequirementCard key={idx} log={log} index={idx} />
+            ))}
+            
+            {analytic.pseudocode && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                  <Code className="w-4 h-4 text-green-400" />
+                  Detection Logic (Pseudocode)
+                </div>
+                <pre className="p-3 rounded bg-background border border-border text-xs font-mono text-muted-foreground overflow-x-auto whitespace-pre-wrap">
+                  {analytic.pseudocode}
+                </pre>
+              </div>
+            )}
+            
+            {analytic.detectionStrategyId && (
+              <a 
+                href={`https://attack.mitre.org/detectionstrategies/${analytic.detectionStrategyId}/`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 text-xs text-primary hover:underline"
+              >
+                <ExternalLink className="w-3 h-3" />
+                View on MITRE ATT&CK
+              </a>
+            )}
+          </div>
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
+  );
+}
+
+function DataComponentCard({ dc }: { dc: DataComponent }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const hasLogDetails = dc.logRequirements && dc.logRequirements.length > 0;
+
+  return (
+    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <div className={cn(
+        "rounded border transition-all",
+        isOpen ? "bg-blue-500/15 border-blue-500/40" : "bg-blue-500/10 border-blue-500/20"
+      )}>
+        <CollapsibleTrigger className="w-full text-left p-2" disabled={!hasLogDetails}>
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex-1">
+              <div className="text-sm font-medium text-foreground">{dc.name}</div>
+              <div className="text-xs text-muted-foreground">{dc.dataSource}</div>
+            </div>
+            {hasLogDetails && (
+              <div className="flex items-center text-muted-foreground">
+                {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+              </div>
+            )}
+          </div>
+        </CollapsibleTrigger>
+        
+        <CollapsibleContent>
+          <div className="px-2 pb-2 space-y-2 border-t border-blue-500/20 pt-2">
+            {dc.logRequirements?.map((log, idx) => (
+              <LogRequirementCard key={idx} log={log} index={idx} />
+            ))}
+          </div>
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
+  );
 }
 
 export function ValueChainDisplay({ mapping, onBack }: ValueChainDisplayProps) {
@@ -31,6 +199,10 @@ export function ValueChainDisplay({ mapping, onBack }: ValueChainDisplayProps) {
   };
 
   const valueInfo = getValueLabel(valueScore);
+  
+  const totalLogRequirements = analytics.reduce((acc, a) => 
+    acc + (a.logRequirements?.length || 0), 0
+  );
 
   return (
     <div className="space-y-6">
@@ -58,9 +230,16 @@ export function ValueChainDisplay({ mapping, onBack }: ValueChainDisplayProps) {
                 <Badge variant="secondary" className="mt-2">{asset.deployment}</Badge>
               )}
             </div>
-            <div className="text-right">
-              <div className="text-3xl font-bold text-primary">{analytics.length}</div>
-              <div className="text-xs text-muted-foreground">Analytics Unlocked</div>
+            <div className="text-right space-y-1">
+              <div>
+                <div className="text-3xl font-bold text-primary">{analytics.length}</div>
+                <div className="text-xs text-muted-foreground">Analytics Unlocked</div>
+              </div>
+              {totalLogRequirements > 0 && (
+                <div className="text-xs text-cyan-400 font-mono">
+                  {totalLogRequirements} log sources documented
+                </div>
+              )}
             </div>
           </div>
           <p className="text-sm text-muted-foreground mt-3">{asset.description}</p>
@@ -70,7 +249,7 @@ export function ValueChainDisplay({ mapping, onBack }: ValueChainDisplayProps) {
       <div className="text-center py-4">
         <h3 className="text-lg font-semibold text-foreground mb-2">MITRE v18 Value Chain</h3>
         <p className="text-sm text-muted-foreground">
-          How this product provides detection value through the ATT&CK framework
+          Click on any analytic to see specific event channels, event codes, and required fields
         </p>
       </div>
 
@@ -102,15 +281,9 @@ export function ValueChainDisplay({ mapping, onBack }: ValueChainDisplayProps) {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2 max-h-48 overflow-y-auto">
+            <div className="space-y-2 max-h-64 overflow-y-auto">
               {dataComponents.map((dc) => (
-                <div 
-                  key={dc.id}
-                  className="p-2 rounded bg-blue-500/10 border border-blue-500/20"
-                >
-                  <div className="text-sm font-medium text-foreground">{dc.name}</div>
-                  <div className="text-xs text-muted-foreground">{dc.dataSource}</div>
-                </div>
+                <DataComponentCard key={dc.id} dc={dc} />
               ))}
             </div>
             <div className="text-xs text-muted-foreground mt-2 text-center">
@@ -119,29 +292,20 @@ export function ValueChainDisplay({ mapping, onBack }: ValueChainDisplayProps) {
           </CardContent>
         </Card>
 
-        <Card className="bg-card/50 backdrop-blur border-yellow-500/30" data-testid="card-analytics">
+        <Card className="bg-card/50 backdrop-blur border-yellow-500/30 lg:col-span-2" data-testid="card-analytics">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
               <div className="w-8 h-8 rounded bg-yellow-500/20 flex items-center justify-center">
                 <Search className="w-4 h-4 text-yellow-400" />
               </div>
               Step 3: Analytics Unlocked
+              <span className="text-xs text-muted-foreground ml-auto">Click to expand log details</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2 max-h-48 overflow-y-auto">
+            <div className="space-y-2 max-h-96 overflow-y-auto">
               {analytics.map((a) => (
-                <div 
-                  key={a.id}
-                  className="p-2 rounded bg-yellow-500/10 border border-yellow-500/20"
-                >
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-3 h-3 text-yellow-400 flex-shrink-0" />
-                    <span className="font-mono text-xs text-yellow-400">{a.id}</span>
-                  </div>
-                  <div className="text-sm font-medium text-foreground mt-1">{a.name}</div>
-                  <div className="text-xs text-muted-foreground">{a.source}</div>
-                </div>
+                <AnalyticDetailCard key={a.id} analytic={a} />
               ))}
             </div>
             <div className="text-xs text-muted-foreground mt-2 text-center">
@@ -149,47 +313,47 @@ export function ValueChainDisplay({ mapping, onBack }: ValueChainDisplayProps) {
             </div>
           </CardContent>
         </Card>
-
-        <Card className="bg-card/50 backdrop-blur border-red-500/30" data-testid="card-techniques">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <div className="w-8 h-8 rounded bg-red-500/20 flex items-center justify-center">
-                <Target className="w-4 h-4 text-red-400" />
-              </div>
-              Step 4: Techniques Detected
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {techniques.map((t) => (
-                <div 
-                  key={t.id}
-                  className="p-2 rounded bg-red-500/10 border border-red-500/20"
-                >
-                  <div className="flex items-center gap-2">
-                    <Shield className="w-3 h-3 text-green-400 flex-shrink-0" />
-                    <span className="font-mono text-xs text-red-400">{t.id}</span>
-                  </div>
-                  <div className="text-sm font-medium text-foreground mt-1">{t.name}</div>
-                  <div className="text-xs text-muted-foreground truncate">{t.tactic}</div>
-                  {t.usedByGroups.length > 0 && (
-                    <div className="flex gap-1 mt-1 flex-wrap">
-                      {t.usedByGroups.slice(0, 2).map(g => (
-                        <Badge key={g} variant="destructive" className="text-[10px] px-1">
-                          {g}
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-            <div className="text-xs text-muted-foreground mt-2 text-center">
-              Protection against {techniques.length} techniques
-            </div>
-          </CardContent>
-        </Card>
       </div>
+
+      <Card className="bg-card/50 backdrop-blur border-red-500/30" data-testid="card-techniques">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <div className="w-8 h-8 rounded bg-red-500/20 flex items-center justify-center">
+              <Target className="w-4 h-4 text-red-400" />
+            </div>
+            Step 4: Techniques Detected
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {techniques.map((t) => (
+              <div 
+                key={t.id}
+                className="p-3 rounded bg-red-500/10 border border-red-500/20"
+              >
+                <div className="flex items-center gap-2">
+                  <Shield className="w-3 h-3 text-green-400 flex-shrink-0" />
+                  <span className="font-mono text-sm text-red-400">{t.id}</span>
+                </div>
+                <div className="text-sm font-medium text-foreground mt-1">{t.name}</div>
+                <div className="text-xs text-muted-foreground mt-1 line-clamp-1">{t.tactic}</div>
+                {t.usedByGroups.length > 0 && (
+                  <div className="flex gap-1 mt-2 flex-wrap">
+                    {t.usedByGroups.slice(0, 3).map(g => (
+                      <Badge key={g} variant="destructive" className="text-[10px] px-1">
+                        {g}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="text-xs text-muted-foreground mt-3 text-center">
+            Protection against {techniques.length} techniques
+          </div>
+        </CardContent>
+      </Card>
 
       <Card className="bg-gradient-to-r from-green-500/10 to-primary/10 border-green-500/30">
         <CardContent className="p-4">
