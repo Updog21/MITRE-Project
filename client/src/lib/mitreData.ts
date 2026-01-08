@@ -720,3 +720,70 @@ export function getDataComponentsForProduct(productId: string): DataComponentRef
     .map(id => dataComponents[id])
     .filter(Boolean);
 }
+
+export function getDetectionStrategiesByTechniques(techniqueIds: string[], platform?: string): DetectionStrategy[] {
+  if (!techniqueIds || techniqueIds.length === 0) return [];
+  
+  const techSet = new Set(techniqueIds.map(t => t.toUpperCase()));
+  
+  const matchedStrategies = detectionStrategies.filter(ds => 
+    ds.techniques.some(t => {
+      const upperT = t.toUpperCase();
+      return techSet.has(upperT) || 
+        techniqueIds.some(tid => {
+          const upperTid = tid.toUpperCase();
+          return upperTid.startsWith(upperT) || upperT.startsWith(upperTid);
+        });
+    })
+  );
+  
+  if (!platform) {
+    return matchedStrategies;
+  }
+  
+  const platformLower = platform.toLowerCase();
+  
+  return matchedStrategies.map(ds => {
+    const filteredAnalytics = ds.analytics.filter(a => 
+      a.platforms.some(p => p.toLowerCase() === platformLower)
+    );
+    
+    if (filteredAnalytics.length === 0) return null;
+    
+    return {
+      ...ds,
+      analytics: filteredAnalytics
+    };
+  }).filter((ds): ds is DetectionStrategy => ds !== null);
+}
+
+export function getDataComponentsFromStrategies(strategies: DetectionStrategy[]): DataComponentRef[] {
+  if (!strategies || strategies.length === 0) return [];
+  
+  const dcIds = new Set<string>();
+  strategies.forEach(ds => {
+    if (ds.dataComponentRefs) {
+      ds.dataComponentRefs.forEach(dcId => dcIds.add(dcId));
+    }
+    if (ds.analytics) {
+      ds.analytics.forEach(a => {
+        if (a.dataComponents) {
+          a.dataComponents.forEach(dcId => dcIds.add(dcId));
+        }
+      });
+    }
+  });
+  
+  return Array.from(dcIds)
+    .map(id => dataComponents[id])
+    .filter((dc): dc is DataComponentRef => dc !== undefined && dc !== null);
+}
+
+export function getTechniquesFromStrategies(strategies: DetectionStrategy[]): Technique[] {
+  const techIds = new Set<string>();
+  strategies.forEach(ds => {
+    ds.techniques.forEach(t => techIds.add(t));
+  });
+  
+  return techniques.filter(t => techIds.has(t.id));
+}

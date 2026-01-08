@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Asset, getDetectionStrategiesForProduct, dataComponents, techniques, DetectionStrategy, AnalyticItem, DataComponentRef, mitreAssets, MitreAsset } from '@/lib/mitreData';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -22,7 +22,6 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAutoMappingWithAutoRun, RESOURCE_LABELS } from '@/hooks/useAutoMapper';
-import { useEffect } from 'react';
 
 interface ProductViewProps {
   product: Asset;
@@ -173,15 +172,15 @@ export function ProductView({ product, onBack }: ProductViewProps) {
   const [selectedDataComponent, setSelectedDataComponent] = useState<DataComponentRef | null>(null);
   const [selectedMitreAsset, setSelectedMitreAsset] = useState<MitreAsset | null>(null);
   
-  const autoMapping = useAutoMappingWithAutoRun(product.id);
+  const platform = product.platforms[0];
+  
+  const autoMapping = useAutoMappingWithAutoRun(product.id, platform);
   
   useEffect(() => {
     if (autoMapping.shouldAutoRun) {
       autoMapping.triggerAutoRun();
     }
   }, [autoMapping.shouldAutoRun]);
-  
-  const platform = product.platforms[0];
   
   const strategies = getDetectionStrategiesForProduct(product.id);
 
@@ -646,9 +645,14 @@ export function ProductView({ product, onBack }: ProductViewProps) {
             <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
               <Zap className="w-5 h-5 text-primary" />
               Additional Coverage from Community Resources
+              {autoMapping.enrichedMapping && (
+                <Badge className={cn("text-white ml-2", RESOURCE_LABELS[autoMapping.enrichedMapping.source]?.color || 'bg-gray-500')}>
+                  {RESOURCE_LABELS[autoMapping.enrichedMapping.source]?.label}
+                </Badge>
+              )}
             </h2>
             <p className="text-muted-foreground mb-6">
-              Detection rules and analytics automatically discovered from Sigma, Elastic, Splunk, and MITRE STIX repositories.
+              Detection strategies derived from techniques discovered in community detection rules (Sigma, Elastic, Splunk).
             </p>
 
             {autoMapping.isLoading && (
@@ -658,89 +662,201 @@ export function ProductView({ product, onBack }: ProductViewProps) {
               </div>
             )}
 
-            {autoMapping.data?.status === 'matched' && autoMapping.data.mapping && (
+            {autoMapping.enrichedMapping && autoMapping.enrichedMapping.detectionStrategies.length > 0 && (
               <div className="space-y-4">
-                <div className="p-4 rounded-lg border border-border bg-card">
-                  <div className="flex items-center gap-4 text-sm mb-4">
-                    <div className="flex items-center gap-2">
-                      <span className="text-muted-foreground">Source:</span>
-                      <Badge className={cn("text-white", RESOURCE_LABELS[autoMapping.data.source || '']?.color || 'bg-gray-500')}>
-                        {RESOURCE_LABELS[autoMapping.data.source || '']?.label || autoMapping.data.source}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-muted-foreground">Confidence:</span>
-                      <span className="font-semibold text-foreground">{autoMapping.data.confidence}%</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-muted-foreground">Analytics Found:</span>
-                      <span className="font-semibold text-foreground">{autoMapping.data.mapping.analytics.length}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-muted-foreground">Techniques Covered:</span>
-                      <span className="font-semibold text-foreground">{autoMapping.data.mapping.detectionStrategies.length}</span>
-                    </div>
-                  </div>
+                {autoMapping.enrichedMapping.detectionStrategies.map((strategy) => {
+                  const isStrategyExpanded = expandedStrategies.has(`community-${strategy.id}`);
+                  
+                  return (
+                    <div key={`community-${strategy.id}`} className="border border-border rounded-lg overflow-hidden bg-card">
+                      <button
+                        onClick={() => toggleStrategy(`community-${strategy.id}`)}
+                        className="w-full px-4 py-4 text-left flex items-center gap-4 hover:bg-muted/50 transition-colors"
+                        data-testid={`button-expand-community-strategy-${strategy.id}`}
+                      >
+                        <ChevronRight className={cn(
+                          "w-5 h-5 text-muted-foreground transition-transform flex-shrink-0",
+                          isStrategyExpanded && "rotate-90"
+                        )} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <code className="text-xs text-primary font-mono">{strategy.id}</code>
+                            <span className="font-semibold text-foreground">{strategy.name}</span>
+                            <Badge className={cn("text-white text-[10px]", RESOURCE_LABELS[autoMapping.enrichedMapping!.source]?.color || 'bg-gray-500')}>
+                              {RESOURCE_LABELS[autoMapping.enrichedMapping!.source]?.label}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground line-clamp-1">{strategy.description}</p>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <Badge variant="secondary" className="text-xs">
+                            {strategy.analytics.length} Analytics
+                          </Badge>
+                          {strategy.techniques.slice(0, 2).map(t => (
+                            <Badge key={t} className="bg-red-100 text-red-700 border-red-200 font-mono text-xs">
+                              {t}
+                            </Badge>
+                          ))}
+                        </div>
+                      </button>
 
-                  {autoMapping.data.mapping.detectionStrategies.length > 0 && (
-                    <div className="mb-4">
-                      <h4 className="text-sm font-medium text-foreground mb-2">ATT&CK Techniques from {RESOURCE_LABELS[autoMapping.data.source || '']?.label}</h4>
-                      <div className="flex flex-wrap gap-2">
-                        {autoMapping.data.mapping.detectionStrategies.slice(0, 20).map(techId => (
-                          <a
-                            key={techId}
-                            href={`https://attack.mitre.org/techniques/${techId.replace('.', '/')}/`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded border border-border bg-muted/50 hover:border-primary/30 text-xs font-mono text-red-600 hover:underline"
-                          >
-                            {techId}
-                          </a>
-                        ))}
-                        {autoMapping.data.mapping.detectionStrategies.length > 20 && (
-                          <span className="text-xs text-muted-foreground px-2 py-1">
-                            +{autoMapping.data.mapping.detectionStrategies.length - 20} more
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {autoMapping.data.mapping.analytics.length > 0 && (
-                  <div className="border border-border rounded-lg overflow-hidden bg-card">
-                    <div className="px-4 py-3 border-b border-border bg-muted/30">
-                      <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                        <Layers className="w-4 h-4 text-primary" />
-                        Community Analytics ({autoMapping.data.mapping.analytics.length})
-                      </h4>
-                    </div>
-                    <div className="divide-y divide-border max-h-96 overflow-y-auto">
-                      {autoMapping.data.mapping.analytics.map(analytic => (
-                        <div key={analytic.id} className="px-4 py-3 hover:bg-muted/20 transition-colors">
-                          <div className="flex items-start gap-3">
-                            <div className="flex-1 min-w-0">
-                              <div className="font-medium text-foreground text-sm">{analytic.name}</div>
-                              {analytic.description && (
-                                <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{analytic.description}</p>
-                              )}
-                              {analytic.logSources && analytic.logSources.length > 0 && (
-                                <div className="flex flex-wrap gap-1 mt-2">
-                                  {analytic.logSources.map((ls, i) => (
-                                    <Badge key={i} variant="outline" className="text-xs">
-                                      {ls}
-                                    </Badge>
-                                  ))}
-                                </div>
-                              )}
+                      {isStrategyExpanded && (
+                        <div className="border-t border-border">
+                          <div className="px-6 py-4 bg-muted/20">
+                            <p className="text-sm text-muted-foreground mb-4">{strategy.description}</p>
+                            
+                            <div className="mb-4">
+                              <span className="text-sm font-medium text-foreground">ATT&CK Techniques: </span>
+                              <span className="text-sm text-muted-foreground">
+                                {strategy.techniques.map((t, i) => (
+                                  <span key={t}>
+                                    <a
+                                      href={`https://attack.mitre.org/techniques/${t.replace('.', '/')}/`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-red-600 hover:underline font-mono"
+                                    >
+                                      {t}
+                                    </a>
+                                    {i < strategy.techniques.length - 1 && ', '}
+                                  </span>
+                                ))}
+                              </span>
                             </div>
-                            <code className="text-xs text-muted-foreground font-mono flex-shrink-0">{analytic.id}</code>
+
+                            <h4 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                              <Layers className="w-4 h-4 text-primary" />
+                              Analytics ({strategy.analytics.length})
+                            </h4>
+                            
+                            <div className="space-y-3">
+                              {strategy.analytics.map((analytic) => {
+                                const isAnalyticExpanded = expandedAnalytics.has(`community-${analytic.id}`);
+                                const logSources = getLogSourcesForAnalytic(analytic);
+                                const mutableElements = getMutableElementsForAnalytic(analytic);
+
+                                return (
+                                  <div key={`community-${analytic.id}`} className="border border-border rounded-md overflow-hidden bg-background">
+                                    <button
+                                      onClick={() => toggleAnalytic(`community-${analytic.id}`)}
+                                      className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-muted/30 transition-colors"
+                                      data-testid={`button-expand-community-analytic-${analytic.id}`}
+                                    >
+                                      <ChevronRight className={cn(
+                                        "w-4 h-4 text-muted-foreground transition-transform flex-shrink-0",
+                                        isAnalyticExpanded && "rotate-90"
+                                      )} />
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2">
+                                          <code className="text-xs text-primary font-mono">{analytic.id}</code>
+                                          <span className="font-medium text-foreground">{analytic.name}</span>
+                                        </div>
+                                      </div>
+                                      <Badge variant="outline" className="text-xs">
+                                        {logSources.length} Log Sources
+                                      </Badge>
+                                    </button>
+
+                                    {isAnalyticExpanded && (
+                                      <div className="px-4 pb-4 pt-2 border-t border-border space-y-5">
+                                        <div>
+                                          <h5 className="text-sm font-medium text-muted-foreground mb-2">Description</h5>
+                                          <p className="text-sm text-foreground">{analytic.description}</p>
+                                        </div>
+
+                                        <div>
+                                          <h5 className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-2">
+                                            <Database className="w-4 h-4" />
+                                            Log Sources
+                                          </h5>
+                                          <div className="border border-border rounded-md overflow-hidden">
+                                            <table className="w-full text-sm">
+                                              <thead className="bg-muted/50">
+                                                <tr>
+                                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Data Component</th>
+                                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Name</th>
+                                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Channel</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody className="divide-y divide-border">
+                                                {logSources.map((ls, idx) => (
+                                                  <tr key={idx}>
+                                                    <td className="px-3 py-2">
+                                                      <button
+                                                        onClick={() => {
+                                                          const dc = dataComponents[ls.dataComponentId];
+                                                          if (dc) setSelectedDataComponent(dc);
+                                                        }}
+                                                        className="text-primary hover:underline font-mono text-xs"
+                                                      >
+                                                        {ls.dataComponentId}
+                                                      </button>
+                                                    </td>
+                                                    <td className="px-3 py-2 text-foreground">{ls.logSourceName}</td>
+                                                    <td className="px-3 py-2 text-muted-foreground">{ls.channel}</td>
+                                                  </tr>
+                                                ))}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                        </div>
+
+                                        {mutableElements.length > 0 && (
+                                          <div>
+                                            <h5 className="text-sm font-medium text-muted-foreground mb-2">Mutable Elements</h5>
+                                            <div className="border border-border rounded-md overflow-hidden">
+                                              <table className="w-full text-sm">
+                                                <thead className="bg-muted/50">
+                                                  <tr>
+                                                    <th className="text-left px-3 py-2 font-medium text-muted-foreground w-48">Field</th>
+                                                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Description</th>
+                                                  </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-border">
+                                                  {mutableElements.map(me => (
+                                                    <tr key={me.field}>
+                                                      <td className="px-3 py-2 font-mono text-primary">{me.field}</td>
+                                                      <td className="px-3 py-2 text-foreground">{me.description}</td>
+                                                    </tr>
+                                                  ))}
+                                                </tbody>
+                                              </table>
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
                         </div>
-                      ))}
+                      )}
                     </div>
-                  </div>
-                )}
+                  );
+                })}
+              </div>
+            )}
+
+            {autoMapping.enrichedMapping && autoMapping.enrichedMapping.detectionStrategies.length === 0 && autoMapping.enrichedMapping.techniqueIds.length > 0 && (
+              <div className="p-4 rounded-lg border border-border bg-card">
+                <p className="text-sm text-muted-foreground mb-3">
+                  Found <strong>{autoMapping.enrichedMapping.techniqueIds.length}</strong> techniques from {RESOURCE_LABELS[autoMapping.enrichedMapping.source]?.label}, but no matching detection strategies in our knowledge base.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {autoMapping.enrichedMapping.techniqueIds.slice(0, 10).map(techId => (
+                    <a
+                      key={techId}
+                      href={`https://attack.mitre.org/techniques/${techId.replace('.', '/')}/`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded border border-border bg-muted/50 hover:border-primary/30 text-xs font-mono text-red-600 hover:underline"
+                    >
+                      {techId}
+                    </a>
+                  ))}
+                </div>
               </div>
             )}
 

@@ -1,4 +1,20 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { 
+  getDetectionStrategiesByTechniques, 
+  getDataComponentsFromStrategies,
+  DetectionStrategy,
+  DataComponentRef 
+} from "@/lib/mitreData";
+
+export interface EnrichedCommunityMapping {
+  source: string;
+  confidence: number;
+  techniqueIds: string[];
+  detectionStrategies: DetectionStrategy[];
+  dataComponents: DataComponentRef[];
+  communityAnalytics: AnalyticMapping[];
+}
 
 export interface AnalyticMapping {
   id: string;
@@ -74,7 +90,7 @@ export function useRunAutoMapper() {
   });
 }
 
-export function useAutoMappingWithAutoRun(productId: string) {
+export function useAutoMappingWithAutoRun(productId: string, platform?: string) {
   const queryClient = useQueryClient();
   
   const statusQuery = useQuery({
@@ -96,8 +112,30 @@ export function useAutoMappingWithAutoRun(productId: string) {
                         !autoRunMutation.isSuccess &&
                         !autoRunMutation.isError;
 
+  const rawData = autoRunMutation.data || statusQuery.data;
+
+  const enrichedMapping = useMemo((): EnrichedCommunityMapping | null => {
+    if (!rawData?.mapping || rawData.status !== 'matched') {
+      return null;
+    }
+    
+    const techniqueIds = rawData.mapping.detectionStrategies;
+    const detectionStrategies = getDetectionStrategiesByTechniques(techniqueIds, platform);
+    const dataComponents = getDataComponentsFromStrategies(detectionStrategies);
+    
+    return {
+      source: rawData.source || 'unknown',
+      confidence: rawData.confidence || 0,
+      techniqueIds,
+      detectionStrategies,
+      dataComponents,
+      communityAnalytics: rawData.mapping.analytics,
+    };
+  }, [rawData, platform]);
+
   return {
-    data: autoRunMutation.data || statusQuery.data,
+    data: rawData,
+    enrichedMapping,
     isLoading: statusQuery.isLoading || autoRunMutation.isPending,
     isAutoRunning: autoRunMutation.isPending,
     error: statusQuery.error || autoRunMutation.error,
