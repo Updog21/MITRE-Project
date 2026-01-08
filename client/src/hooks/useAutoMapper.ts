@@ -74,6 +74,38 @@ export function useRunAutoMapper() {
   });
 }
 
+export function useAutoMappingWithAutoRun(productId: string) {
+  const queryClient = useQueryClient();
+  
+  const statusQuery = useQuery({
+    queryKey: ['mapping', productId],
+    queryFn: () => fetchMappingStatus(productId),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const autoRunMutation = useMutation({
+    mutationFn: runAutoMapper,
+    onSuccess: (data) => {
+      queryClient.setQueryData(['mapping', data.productId], data);
+    },
+  });
+
+  const shouldAutoRun = statusQuery.isSuccess && 
+                        statusQuery.data === null && 
+                        !autoRunMutation.isPending && 
+                        !autoRunMutation.isSuccess &&
+                        !autoRunMutation.isError;
+
+  return {
+    data: autoRunMutation.data || statusQuery.data,
+    isLoading: statusQuery.isLoading || autoRunMutation.isPending,
+    isAutoRunning: autoRunMutation.isPending,
+    error: statusQuery.error || autoRunMutation.error,
+    shouldAutoRun,
+    triggerAutoRun: () => autoRunMutation.mutate(productId),
+  };
+}
+
 export const RESOURCE_LABELS: Record<string, { label: string; color: string }> = {
   ctid: { label: 'CTID Mappings', color: 'bg-blue-500' },
   sigma: { label: 'Sigma Rules', color: 'bg-purple-500' },

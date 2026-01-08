@@ -21,7 +21,8 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useMappingStatus, useRunAutoMapper, RESOURCE_LABELS } from '@/hooks/useAutoMapper';
+import { useAutoMappingWithAutoRun, RESOURCE_LABELS } from '@/hooks/useAutoMapper';
+import { useEffect } from 'react';
 
 interface ProductViewProps {
   product: Asset;
@@ -172,8 +173,13 @@ export function ProductView({ product, onBack }: ProductViewProps) {
   const [selectedDataComponent, setSelectedDataComponent] = useState<DataComponentRef | null>(null);
   const [selectedMitreAsset, setSelectedMitreAsset] = useState<MitreAsset | null>(null);
   
-  const { data: mappingStatus, isLoading: mappingLoading } = useMappingStatus(product.id);
-  const runAutoMapper = useRunAutoMapper();
+  const autoMapping = useAutoMappingWithAutoRun(product.id);
+  
+  useEffect(() => {
+    if (autoMapping.shouldAutoRun) {
+      autoMapping.triggerAutoRun();
+    }
+  }, [autoMapping.shouldAutoRun]);
   
   const platform = product.platforms[0];
   
@@ -276,6 +282,7 @@ export function ProductView({ product, onBack }: ProductViewProps) {
     { id: 'overview', label: 'Overview' },
     { id: 'coverage', label: 'Coverage Summary' },
     { id: 'detection-strategies', label: 'Detection Strategies' },
+    { id: 'community-coverage', label: 'Community Coverage' },
   ];
 
   return (
@@ -301,20 +308,23 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                 {getPlatformIcon(platform)}
                 <span className="ml-1">{platform}</span>
               </Badge>
-              {mappingStatus?.status === 'matched' && mappingStatus.source && (
+              <Badge variant="outline" className="text-xs">
+                CTID Native
+              </Badge>
+              {autoMapping.data?.status === 'matched' && autoMapping.data.source && (
                 <Badge 
                   className={cn(
                     "text-xs text-white",
-                    RESOURCE_LABELS[mappingStatus.source]?.color || 'bg-gray-500'
+                    RESOURCE_LABELS[autoMapping.data.source]?.color || 'bg-gray-500'
                   )}
                 >
-                  {RESOURCE_LABELS[mappingStatus.source]?.label || mappingStatus.source}
+                  + {RESOURCE_LABELS[autoMapping.data.source]?.label || autoMapping.data.source}
                 </Badge>
               )}
-              {mappingStatus?.status === 'ai_pending' && (
-                <Badge variant="outline" className="text-xs text-amber-600 border-amber-600">
-                  <AlertCircle className="w-3 h-3 mr-1" />
-                  AI Mapping Pending
+              {autoMapping.isAutoRunning && (
+                <Badge variant="outline" className="text-xs text-blue-600 border-blue-600">
+                  <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                  Auto-mapping...
                 </Badge>
               )}
               {product.deployment && (
@@ -396,103 +406,6 @@ export function ProductView({ product, onBack }: ProductViewProps) {
               </div>
             </div>
 
-            {/* Auto-Mapper Section */}
-            <div className="mt-6 p-4 rounded-lg border border-border bg-card">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                  <Zap className="w-4 h-4 text-primary" />
-                  Tiered Resource Mapping
-                </h3>
-                {!mappingStatus && !mappingLoading && (
-                  <button
-                    onClick={() => runAutoMapper.mutate(product.id)}
-                    disabled={runAutoMapper.isPending}
-                    className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2"
-                    data-testid="button-run-auto-mapper"
-                  >
-                    {runAutoMapper.isPending ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Mapping...
-                      </>
-                    ) : (
-                      <>
-                        <Zap className="w-4 h-4" />
-                        Run Auto-Mapper
-                      </>
-                    )}
-                  </button>
-                )}
-              </div>
-              
-              {mappingLoading && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Loading mapping status...
-                </div>
-              )}
-              
-              {mappingStatus?.status === 'matched' && mappingStatus.mapping && (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-4 text-sm">
-                    <div className="flex items-center gap-2">
-                      <span className="text-muted-foreground">Source:</span>
-                      <Badge className={cn("text-white", RESOURCE_LABELS[mappingStatus.source || '']?.color || 'bg-gray-500')}>
-                        {RESOURCE_LABELS[mappingStatus.source || '']?.label || mappingStatus.source}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-muted-foreground">Confidence:</span>
-                      <span className="font-semibold text-foreground">{mappingStatus.confidence}%</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-muted-foreground">Analytics:</span>
-                      <span className="font-semibold text-foreground">{mappingStatus.mapping.analytics.length}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-muted-foreground">Techniques:</span>
-                      <span className="font-semibold text-foreground">{mappingStatus.mapping.detectionStrategies.length}</span>
-                    </div>
-                  </div>
-                  
-                  {mappingStatus.mapping.analytics.length > 0 && (
-                    <div className="mt-3">
-                      <div className="text-xs font-medium text-muted-foreground mb-2">Top Analytics from {RESOURCE_LABELS[mappingStatus.source || '']?.label}:</div>
-                      <div className="space-y-1 max-h-32 overflow-y-auto">
-                        {mappingStatus.mapping.analytics.slice(0, 5).map(analytic => (
-                          <div key={analytic.id} className="text-xs p-2 bg-muted/50 rounded border border-border">
-                            <div className="font-medium text-foreground">{analytic.name}</div>
-                            {analytic.logSources && analytic.logSources.length > 0 && (
-                              <div className="text-muted-foreground mt-1">
-                                Log: {analytic.logSources.join(', ')}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                        {mappingStatus.mapping.analytics.length > 5 && (
-                          <div className="text-xs text-muted-foreground">
-                            +{mappingStatus.mapping.analytics.length - 5} more analytics
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-              
-              {mappingStatus?.status === 'ai_pending' && (
-                <div className="flex items-center gap-2 text-sm text-amber-600">
-                  <AlertCircle className="w-4 h-4" />
-                  No automated mappings found. This product requires AI-assisted mapping.
-                </div>
-              )}
-              
-              {!mappingStatus && !mappingLoading && (
-                <p className="text-sm text-muted-foreground">
-                  Query CTID, Sigma, Elastic, Splunk, and MITRE STIX resources to find detection mappings for this product.
-                </p>
-              )}
-            </div>
           </header>
 
           <section className="mb-10" id="coverage">
@@ -724,6 +637,126 @@ export function ProductView({ product, onBack }: ProductViewProps) {
             ) : (
               <div className="py-12 text-center text-muted-foreground border border-dashed border-border rounded-lg">
                 No detection strategies found for {product.productName} on {platform}.
+              </div>
+            )}
+          </section>
+
+          {/* Additional Coverage from Community Resources */}
+          <section id="community-coverage" className="mt-10">
+            <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
+              <Zap className="w-5 h-5 text-primary" />
+              Additional Coverage from Community Resources
+            </h2>
+            <p className="text-muted-foreground mb-6">
+              Detection rules and analytics automatically discovered from Sigma, Elastic, Splunk, and MITRE STIX repositories.
+            </p>
+
+            {autoMapping.isLoading && (
+              <div className="py-8 text-center border border-dashed border-border rounded-lg">
+                <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-primary" />
+                <p className="text-muted-foreground">Querying community resources...</p>
+              </div>
+            )}
+
+            {autoMapping.data?.status === 'matched' && autoMapping.data.mapping && (
+              <div className="space-y-4">
+                <div className="p-4 rounded-lg border border-border bg-card">
+                  <div className="flex items-center gap-4 text-sm mb-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">Source:</span>
+                      <Badge className={cn("text-white", RESOURCE_LABELS[autoMapping.data.source || '']?.color || 'bg-gray-500')}>
+                        {RESOURCE_LABELS[autoMapping.data.source || '']?.label || autoMapping.data.source}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">Confidence:</span>
+                      <span className="font-semibold text-foreground">{autoMapping.data.confidence}%</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">Analytics Found:</span>
+                      <span className="font-semibold text-foreground">{autoMapping.data.mapping.analytics.length}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">Techniques Covered:</span>
+                      <span className="font-semibold text-foreground">{autoMapping.data.mapping.detectionStrategies.length}</span>
+                    </div>
+                  </div>
+
+                  {autoMapping.data.mapping.detectionStrategies.length > 0 && (
+                    <div className="mb-4">
+                      <h4 className="text-sm font-medium text-foreground mb-2">ATT&CK Techniques from {RESOURCE_LABELS[autoMapping.data.source || '']?.label}</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {autoMapping.data.mapping.detectionStrategies.slice(0, 20).map(techId => (
+                          <a
+                            key={techId}
+                            href={`https://attack.mitre.org/techniques/${techId.replace('.', '/')}/`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded border border-border bg-muted/50 hover:border-primary/30 text-xs font-mono text-red-600 hover:underline"
+                          >
+                            {techId}
+                          </a>
+                        ))}
+                        {autoMapping.data.mapping.detectionStrategies.length > 20 && (
+                          <span className="text-xs text-muted-foreground px-2 py-1">
+                            +{autoMapping.data.mapping.detectionStrategies.length - 20} more
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {autoMapping.data.mapping.analytics.length > 0 && (
+                  <div className="border border-border rounded-lg overflow-hidden bg-card">
+                    <div className="px-4 py-3 border-b border-border bg-muted/30">
+                      <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                        <Layers className="w-4 h-4 text-primary" />
+                        Community Analytics ({autoMapping.data.mapping.analytics.length})
+                      </h4>
+                    </div>
+                    <div className="divide-y divide-border max-h-96 overflow-y-auto">
+                      {autoMapping.data.mapping.analytics.map(analytic => (
+                        <div key={analytic.id} className="px-4 py-3 hover:bg-muted/20 transition-colors">
+                          <div className="flex items-start gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium text-foreground text-sm">{analytic.name}</div>
+                              {analytic.description && (
+                                <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{analytic.description}</p>
+                              )}
+                              {analytic.logSources && analytic.logSources.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-2">
+                                  {analytic.logSources.map((ls, i) => (
+                                    <Badge key={i} variant="outline" className="text-xs">
+                                      {ls}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            <code className="text-xs text-muted-foreground font-mono flex-shrink-0">{analytic.id}</code>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {autoMapping.data?.status === 'ai_pending' && (
+              <div className="py-8 text-center border border-dashed border-amber-500/50 rounded-lg bg-amber-500/5">
+                <AlertCircle className="w-6 h-6 mx-auto mb-2 text-amber-500" />
+                <p className="text-amber-600 font-medium">No Automated Mappings Found</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  This product requires AI-assisted mapping to determine detection coverage.
+                </p>
+              </div>
+            )}
+
+            {!autoMapping.data && !autoMapping.isLoading && (
+              <div className="py-8 text-center border border-dashed border-border rounded-lg">
+                <p className="text-muted-foreground">Community coverage will load automatically.</p>
               </div>
             )}
           </section>
