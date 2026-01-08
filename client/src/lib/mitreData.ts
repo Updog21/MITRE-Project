@@ -61,6 +61,40 @@ export interface Technique {
   detectionStrategies: string[];
 }
 
+export interface MitreAsset {
+  id: string;
+  name: string;
+  domain: string;
+  description: string;
+}
+
+export const mitreAssets: Record<string, MitreAsset> = {
+  'A0001': { id: 'A0001', name: 'Workstation', domain: 'ICS', description: 'Devices used by human operators or engineers to perform configuration, programming, maintenance, diagnostic, or operational tasks.' },
+  'A0002': { id: 'A0002', name: 'Human-Machine Interface (HMI)', domain: 'ICS', description: 'Systems used by an operator to monitor the real-time status of an operational process and to perform necessary control functions.' },
+  'A0003': { id: 'A0003', name: 'Programmable Logic Controller (PLC)', domain: 'ICS', description: 'Embedded programmable control device that allows deployment of customized programs/logic to control or monitor an operational process.' },
+  'A0004': { id: 'A0004', name: 'Remote Terminal Unit (RTU)', domain: 'ICS', description: 'Device that typically resides between field devices and control/SCADA servers and supports communication interfacing and data aggregation.' },
+  'A0005': { id: 'A0005', name: 'Intelligent Electronic Device (IED)', domain: 'ICS', description: 'Specialized field device designed to perform specific operational functions for protection, monitoring, or control within the electric sector.' },
+  'A0006': { id: 'A0006', name: 'Data Historian', domain: 'ICS', description: 'Systems used to collect and store data including telemetry, events, alerts, and alarms about the operational process.' },
+  'A0007': { id: 'A0007', name: 'Control Server', domain: 'ICS', description: 'Software platform that communicates with low-level control devices such as RTUs and PLCs using automation protocols.' },
+  'A0008': { id: 'A0008', name: 'Application Server', domain: 'ICS', description: 'Servers used to host various software applications necessary to supporting the ICS including data analytics and alarm management.' },
+  'A0009': { id: 'A0009', name: 'Data Gateway', domain: 'ICS', description: 'Device that supports communication and exchange of data between different systems, networks, or protocols within the ICS.' },
+  'A0010': { id: 'A0010', name: 'Safety Controller', domain: 'ICS', description: 'Field device used to perform safety critical functions with redundant hardware and processors.' },
+  'A0011': { id: 'A0011', name: 'Virtual Private Network (VPN) Server', domain: 'ICS', description: 'Device used to establish a secure network tunnel between itself and other remote VPN devices.' },
+  'A0012': { id: 'A0012', name: 'Jump Host', domain: 'ICS', description: 'Devices used to support remote management sessions into ICS networks or devices from external networks.' },
+  'A0013': { id: 'A0013', name: 'Field I/O', domain: 'ICS', description: 'Devices that communicate with a controller to send input data from sensors or receive output data for actuators.' },
+  'A0014': { id: 'A0014', name: 'Routers', domain: 'ICS', description: 'A gateway between two networks at OSI layer 3 that relays and directs data packets through that inter-network.' },
+  'A0015': { id: 'A0015', name: 'Switch', domain: 'ICS', description: 'Network device that connects endpoints so they can communicate and share data and resources.' },
+  'A0016': { id: 'A0016', name: 'Firewall', domain: 'ICS', description: 'A gateway that limits access between networks in accordance with local security policy.' },
+  'A0017': { id: 'A0017', name: 'Distributed Control System (DCS) Controller', domain: 'ICS', description: 'Microprocessor unit used to manage automation processes in large scale continuous automation.' },
+  'A0018': { id: 'A0018', name: 'Programmable Automation Controller (PAC)', domain: 'ICS', description: 'Embedded programmable control device designed to enable automation applications across integrated systems.' },
+  'ENT-WS': { id: 'ENT-WS', name: 'Workstation', domain: 'Enterprise', description: 'End-user computing device running desktop operating systems like Windows, macOS, or Linux.' },
+  'ENT-SRV': { id: 'ENT-SRV', name: 'Server', domain: 'Enterprise', description: 'Server systems running server operating systems providing network services, applications, or infrastructure.' },
+  'ENT-NET': { id: 'ENT-NET', name: 'Network Device', domain: 'Enterprise', description: 'Routers, switches, firewalls, and other network infrastructure devices.' },
+  'ENT-CLOUD': { id: 'ENT-CLOUD', name: 'Cloud Service', domain: 'Enterprise', description: 'Cloud-hosted services and infrastructure including IaaS, PaaS, and SaaS.' },
+  'ENT-IDM': { id: 'ENT-IDM', name: 'Identity Management', domain: 'Enterprise', description: 'Identity and access management systems including directory services and SSO platforms.' },
+  'ENT-EP': { id: 'ENT-EP', name: 'Endpoint', domain: 'Enterprise', description: 'General endpoint devices including workstations, laptops, and mobile devices.' },
+};
+
 export interface Asset {
   id: string;
   vendor: string;
@@ -69,6 +103,7 @@ export interface Asset {
   description: string;
   platforms: string[];
   dataComponentIds: string[];
+  mitreAssetIds?: string[];
   source: 'ctid' | 'custom' | 'ai-pending';
 }
 
@@ -412,6 +447,7 @@ export const ctidProducts: Asset[] = [
     description: 'Native Windows security auditing providing authentication, process, and privilege use events.',
     platforms: ['Windows'],
     dataComponentIds: ['DC0001', 'DC0005', 'DC0017', 'DC0036'],
+    mitreAssetIds: ['ENT-WS', 'ENT-SRV', 'A0001', 'A0007'],
     source: 'ctid',
   },
   {
@@ -422,6 +458,7 @@ export const ctidProducts: Asset[] = [
     description: 'Windows system service and device driver that logs detailed system activity to the Windows event log.',
     platforms: ['Windows'],
     dataComponentIds: ['DC0005', 'DC0017', 'DC0082', 'DC0024'],
+    mitreAssetIds: ['ENT-WS', 'ENT-SRV', 'ENT-EP', 'A0001', 'A0007', 'A0008'],
     source: 'ctid',
   },
   {
@@ -432,6 +469,7 @@ export const ctidProducts: Asset[] = [
     description: 'Cloud-based identity and access management with comprehensive sign-in and audit logging.',
     platforms: ['Azure AD'],
     dataComponentIds: ['DC0001'],
+    mitreAssetIds: ['ENT-IDM', 'ENT-CLOUD'],
     source: 'ctid',
   },
   {
@@ -442,6 +480,7 @@ export const ctidProducts: Asset[] = [
     description: 'Linux audit daemon providing comprehensive system call and security event auditing.',
     platforms: ['Linux'],
     dataComponentIds: ['DC0001', 'DC0005', 'DC0017', 'DC0082'],
+    mitreAssetIds: ['ENT-SRV', 'A0007', 'A0008'],
     source: 'ctid',
   },
   {
@@ -452,6 +491,7 @@ export const ctidProducts: Asset[] = [
     description: 'Cloud-native endpoint protection platform providing process, network, and authentication telemetry.',
     platforms: ['Windows'],
     dataComponentIds: ['DC0005', 'DC0017', 'DC0082', 'DC0001', 'DC0024'],
+    mitreAssetIds: ['ENT-WS', 'ENT-SRV', 'ENT-EP', 'A0001', 'A0002', 'A0007'],
     source: 'ctid',
   },
   {
@@ -462,6 +502,7 @@ export const ctidProducts: Asset[] = [
     description: 'Cloud-managed networking providing network connection, firewall, and traffic flow telemetry.',
     platforms: ['Network'],
     dataComponentIds: ['DC0082'],
+    mitreAssetIds: ['ENT-NET', 'A0014', 'A0015', 'A0016'],
     source: 'ctid',
   },
   {
@@ -472,6 +513,7 @@ export const ctidProducts: Asset[] = [
     description: 'Next-generation firewall and IPS providing network connection and intrusion detection telemetry.',
     platforms: ['Network'],
     dataComponentIds: ['DC0082'],
+    mitreAssetIds: ['ENT-NET', 'A0016'],
     source: 'ctid',
   },
   {
@@ -482,6 +524,7 @@ export const ctidProducts: Asset[] = [
     description: 'API management service providing API call logging, authentication events, and network connection telemetry.',
     platforms: ['Azure AD'],
     dataComponentIds: ['DC0082', 'DC0001'],
+    mitreAssetIds: ['ENT-CLOUD', 'A0008', 'A0009'],
     source: 'ctid',
   },
   {
@@ -492,6 +535,7 @@ export const ctidProducts: Asset[] = [
     description: 'Next-generation firewall providing network traffic analysis, threat prevention, and URL filtering logs.',
     platforms: ['Network'],
     dataComponentIds: ['DC0082'],
+    mitreAssetIds: ['ENT-NET', 'A0016'],
     source: 'ctid',
   },
   {
@@ -502,6 +546,7 @@ export const ctidProducts: Asset[] = [
     description: 'Identity and access management platform providing authentication, SSO, and MFA event logging.',
     platforms: ['Azure AD'],
     dataComponentIds: ['DC0001'],
+    mitreAssetIds: ['ENT-IDM', 'ENT-CLOUD'],
     source: 'ctid',
   },
   {
@@ -512,6 +557,7 @@ export const ctidProducts: Asset[] = [
     description: 'AI-powered endpoint protection providing process, file, network, and behavioral telemetry.',
     platforms: ['Windows'],
     dataComponentIds: ['DC0005', 'DC0017', 'DC0082', 'DC0024'],
+    mitreAssetIds: ['ENT-WS', 'ENT-SRV', 'ENT-EP', 'A0001', 'A0007'],
     source: 'ctid',
   },
   {
@@ -522,6 +568,7 @@ export const ctidProducts: Asset[] = [
     description: 'Endpoint detection and response platform providing process, network, and file telemetry.',
     platforms: ['Windows'],
     dataComponentIds: ['DC0005', 'DC0017', 'DC0082'],
+    mitreAssetIds: ['ENT-WS', 'ENT-SRV', 'ENT-EP', 'A0001', 'A0007'],
     source: 'ctid',
   },
   {
@@ -532,6 +579,7 @@ export const ctidProducts: Asset[] = [
     description: 'Enterprise endpoint security platform providing process, network, file, and registry telemetry.',
     platforms: ['Windows'],
     dataComponentIds: ['DC0005', 'DC0017', 'DC0082', 'DC0001', 'DC0024', 'DC0036'],
+    mitreAssetIds: ['ENT-WS', 'ENT-SRV', 'ENT-EP', 'A0001', 'A0002', 'A0007', 'A0008'],
     source: 'ctid',
   },
   {
@@ -542,6 +590,7 @@ export const ctidProducts: Asset[] = [
     description: 'AWS service providing API call logging, user activity, and resource access telemetry.',
     platforms: ['Azure AD'],
     dataComponentIds: ['DC0001', 'DC0082'],
+    mitreAssetIds: ['ENT-CLOUD'],
     source: 'ctid',
   },
   {
@@ -552,6 +601,7 @@ export const ctidProducts: Asset[] = [
     description: 'Network flow logs capturing IP traffic going to and from network interfaces in AWS VPCs.',
     platforms: ['Network'],
     dataComponentIds: ['DC0082'],
+    mitreAssetIds: ['ENT-CLOUD', 'ENT-NET'],
     source: 'ctid',
   },
   {
@@ -562,6 +612,7 @@ export const ctidProducts: Asset[] = [
     description: 'Log collection agent for forwarding Windows, Linux, and application logs to Splunk.',
     platforms: ['Windows'],
     dataComponentIds: ['DC0005', 'DC0017', 'DC0001', 'DC0024'],
+    mitreAssetIds: ['ENT-WS', 'ENT-SRV', 'A0001', 'A0006', 'A0007'],
     source: 'ctid',
   },
   {
@@ -572,6 +623,7 @@ export const ctidProducts: Asset[] = [
     description: 'Open-source network analysis framework providing detailed connection, DNS, HTTP, and SSL logs.',
     platforms: ['Network'],
     dataComponentIds: ['DC0082'],
+    mitreAssetIds: ['ENT-NET', 'A0009'],
     source: 'ctid',
   },
   {
@@ -582,6 +634,7 @@ export const ctidProducts: Asset[] = [
     description: 'Open-source IDS/IPS providing network intrusion detection and network flow telemetry.',
     platforms: ['Network'],
     dataComponentIds: ['DC0082'],
+    mitreAssetIds: ['ENT-NET', 'A0016'],
     source: 'ctid',
   },
   {
@@ -592,6 +645,7 @@ export const ctidProducts: Asset[] = [
     description: 'Cross-platform endpoint visibility tool providing process, network, and system state telemetry.',
     platforms: ['Linux'],
     dataComponentIds: ['DC0005', 'DC0017', 'DC0082', 'DC0001'],
+    mitreAssetIds: ['ENT-SRV', 'A0007', 'A0008'],
     source: 'ctid',
   },
   {
@@ -602,6 +656,7 @@ export const ctidProducts: Asset[] = [
     description: 'Unified agent for Elastic Security providing endpoint, network, and log telemetry.',
     platforms: ['Windows'],
     dataComponentIds: ['DC0005', 'DC0017', 'DC0082', 'DC0001', 'DC0024'],
+    mitreAssetIds: ['ENT-WS', 'ENT-SRV', 'ENT-EP', 'A0001', 'A0007'],
     source: 'ctid',
   },
   {
@@ -612,6 +667,7 @@ export const ctidProducts: Asset[] = [
     description: 'Native macOS security framework providing process, file, and network event telemetry.',
     platforms: ['macOS'],
     dataComponentIds: ['DC0005', 'DC0017', 'DC0082'],
+    mitreAssetIds: ['ENT-WS', 'ENT-EP'],
     source: 'ctid',
   },
   {
@@ -622,6 +678,7 @@ export const ctidProducts: Asset[] = [
     description: 'Next-generation firewall providing network security, VPN, and traffic inspection telemetry.',
     platforms: ['Network'],
     dataComponentIds: ['DC0082', 'DC0001'],
+    mitreAssetIds: ['ENT-NET', 'A0016', 'A0011'],
     source: 'ctid',
   },
   {
@@ -632,6 +689,7 @@ export const ctidProducts: Asset[] = [
     description: 'Cloud security platform providing web traffic, DNS, and network connection telemetry.',
     platforms: ['Network'],
     dataComponentIds: ['DC0082'],
+    mitreAssetIds: ['ENT-CLOUD', 'ENT-NET', 'A0009'],
     source: 'ctid',
   },
 ];

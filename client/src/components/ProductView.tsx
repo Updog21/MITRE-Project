@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Asset, getDetectionStrategiesForProduct, dataComponents, techniques, DetectionStrategy, AnalyticItem, DataComponentRef } from '@/lib/mitreData';
+import { Asset, getDetectionStrategiesForProduct, dataComponents, techniques, DetectionStrategy, AnalyticItem, DataComponentRef, mitreAssets } from '@/lib/mitreData';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { 
@@ -319,29 +319,61 @@ export function ProductView({ product, onBack }: ProductViewProps) {
               </div>
             </div>
 
-            <div className="mt-6 p-4 rounded-lg border border-border bg-card">
-              <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-                <Database className="w-4 h-4 text-primary" />
-                Mapped Data Components
-              </h3>
-              <p className="text-sm text-muted-foreground mb-3">
-                This asset provides the following telemetry sources:
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {product.dataComponentIds.map(dcId => {
-                  const dc = dataComponents[dcId];
-                  return dc ? (
-                    <button
-                      key={dcId}
-                      onClick={() => setSelectedDataComponent(dc)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-muted/50 hover:bg-muted hover:border-primary/30 transition-colors text-sm"
-                      data-testid={`button-dc-chip-${dcId}`}
-                    >
-                      <code className="text-xs text-primary font-mono">{dcId}</code>
-                      <span className="text-foreground">{dc.name}</span>
-                    </button>
-                  ) : null;
-                })}
+            <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="p-4 rounded-lg border border-border bg-card">
+                <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-primary" />
+                  Mapped MITRE Assets
+                </h3>
+                <p className="text-sm text-muted-foreground mb-3">
+                  This product applies to the following asset types:
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {(product.mitreAssetIds || []).map(assetId => {
+                    const asset = mitreAssets[assetId];
+                    return asset ? (
+                      <a
+                        key={assetId}
+                        href={assetId.startsWith('A0') ? `https://attack.mitre.org/assets/${assetId}` : '#'}
+                        target={assetId.startsWith('A0') ? '_blank' : undefined}
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-muted/50 hover:bg-muted hover:border-primary/30 transition-colors text-sm"
+                        title={asset.description}
+                        data-testid={`link-asset-${assetId}`}
+                      >
+                        <code className="text-xs text-primary font-mono">{assetId}</code>
+                        <span className="text-foreground">{asset.name}</span>
+                        <Badge variant="outline" className="text-[10px] px-1 py-0">{asset.domain}</Badge>
+                      </a>
+                    ) : null;
+                  })}
+                </div>
+              </div>
+
+              <div className="p-4 rounded-lg border border-border bg-card">
+                <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                  <Database className="w-4 h-4 text-primary" />
+                  Mapped Data Components
+                </h3>
+                <p className="text-sm text-muted-foreground mb-3">
+                  This asset provides the following telemetry sources:
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {product.dataComponentIds.map(dcId => {
+                    const dc = dataComponents[dcId];
+                    return dc ? (
+                      <button
+                        key={dcId}
+                        onClick={() => setSelectedDataComponent(dc)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-muted/50 hover:bg-muted hover:border-primary/30 transition-colors text-sm"
+                        data-testid={`button-dc-chip-${dcId}`}
+                      >
+                        <code className="text-xs text-primary font-mono">{dcId}</code>
+                        <span className="text-foreground">{dc.name}</span>
+                      </button>
+                    ) : null;
+                  })}
+                </div>
               </div>
             </div>
           </header>
