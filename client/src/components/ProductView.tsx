@@ -322,8 +322,36 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                       </button>
 
                       {isExpanded && (
-                        <div className="px-4 pb-4 pt-2 pl-12 bg-muted/20 space-y-4">
+                        <div className="px-4 pb-4 pt-2 pl-12 bg-muted/20 space-y-6">
                           <p className="text-sm text-muted-foreground">{analytic.description}</p>
+
+                          <div>
+                            <h4 className="text-sm font-medium text-foreground mb-3">Log Sources</h4>
+                            <div className="border border-border rounded-md overflow-hidden">
+                              <table className="w-full text-sm">
+                                <thead className="bg-muted/50">
+                                  <tr>
+                                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Data Component</th>
+                                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Name</th>
+                                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Channel</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-border">
+                                  {dcRefs.map(dc => dc && (
+                                    <tr key={dc.id}>
+                                      <td className="px-3 py-2">
+                                        <a href="#data-components" className="text-primary hover:underline">
+                                          {dc.name} ({dc.id})
+                                        </a>
+                                      </td>
+                                      <td className="px-3 py-2 font-mono text-foreground">{dc.eventSource}</td>
+                                      <td className="px-3 py-2 font-mono text-foreground">{dc.eventId ? `EventCode=${dc.eventId}` : '-'}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
 
                           {analytic.pseudocode && (
                             <div>
@@ -336,17 +364,6 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                               </pre>
                             </div>
                           )}
-
-                          <div>
-                            <h4 className="text-sm font-medium text-foreground mb-2">Required Data Components</h4>
-                            <div className="flex flex-wrap gap-1.5">
-                              {dcRefs.map(dc => dc && (
-                                <Badge key={dc.id} variant="outline" className="font-mono text-xs">
-                                  {dc.id}
-                                </Badge>
-                              ))}
-                            </div>
-                          </div>
 
                           <div>
                             <h4 className="text-sm font-medium text-foreground mb-2">Techniques Detected</h4>
