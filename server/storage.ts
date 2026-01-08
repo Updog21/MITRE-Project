@@ -186,11 +186,11 @@ export class PostgresStorage implements IStorage {
   }
 
   // Hybrid Selector operations
-  async updateProductHybridSelector(productId: string, selectorType: string, selectorValue: string): Promise<Product | undefined> {
+  async updateProductHybridSelector(productId: string, selectorType: string, selectorValues: string[]): Promise<Product | undefined> {
     const result = await db.update(products)
       .set({ 
         hybridSelectorType: selectorType,
-        hybridSelectorValue: selectorValue
+        hybridSelectorValues: selectorValues
       })
       .where(eq(products.productId, productId))
       .returning();

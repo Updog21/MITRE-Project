@@ -18,7 +18,7 @@ export const users = pgTable("users", {
   password: text("password").notNull(),
 });
 
-export const hybridSelectorTypeEnum = ['asset', 'platform'] as const;
+export const hybridSelectorTypeEnum = ['platform'] as const;
 export type HybridSelectorType = typeof hybridSelectorTypeEnum[number];
 
 export const products = pgTable("products", {
@@ -35,7 +35,7 @@ export const products = pgTable("products", {
   mitreAssetIds: text("mitre_asset_ids").array(),
   source: text("source").notNull(),
   hybridSelectorType: text("hybrid_selector_type"),
-  hybridSelectorValue: text("hybrid_selector_value"),
+  hybridSelectorValues: text("hybrid_selector_values").array(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

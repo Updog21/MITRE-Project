@@ -366,14 +366,18 @@ export async function registerRoutes(
     }
   });
 
-  // Update product hybrid selector (only platform type is supported)
+  // Update product hybrid selector (only platform type is supported, multi-select)
   app.patch("/api/products/:productId/hybrid-selector", async (req, res) => {
     try {
       const { productId } = req.params;
-      let { hybridSelectorType, hybridSelectorValue } = req.body;
+      let { hybridSelectorType, hybridSelectorValues } = req.body;
       
-      if (!hybridSelectorType || !hybridSelectorValue) {
-        return res.status(400).json({ error: "hybridSelectorType and hybridSelectorValue are required" });
+      if (!hybridSelectorType) {
+        return res.status(400).json({ error: "hybridSelectorType is required" });
+      }
+      
+      if (!Array.isArray(hybridSelectorValues) || hybridSelectorValues.length === 0) {
+        return res.status(400).json({ error: "hybridSelectorValues must be a non-empty array of platform names" });
       }
       
       // Normalize legacy asset types - reject with error
@@ -388,7 +392,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Only 'platform' type is supported" });
       }
       
-      const updated = await storage.updateProductHybridSelector(productId, hybridSelectorType, hybridSelectorValue);
+      const updated = await storage.updateProductHybridSelector(productId, hybridSelectorType, hybridSelectorValues);
       
       if (!updated) {
         return res.status(404).json({ error: "Product not found" });
