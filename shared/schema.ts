@@ -27,11 +27,11 @@ export const dataComponents = pgTable("data_components", {
   id: serial("id").primaryKey(),
   componentId: text("component_id").notNull().unique(),
   name: text("name").notNull(),
-  dataSourceId: text("data_source_id").notNull(),
-  dataSourceName: text("data_source_name").notNull(),
+  dataSourceId: text("data_source_id"),
+  dataSourceName: text("data_source_name"),
   description: text("description").notNull(),
-  dataCollectionMeasures: text("data_collection_measures").array().notNull(),
-  logSources: jsonb("log_sources").notNull(),
+  dataCollectionMeasures: text("data_collection_measures").array().notNull().default(sql`'{}'::text[]`),
+  logSources: jsonb("log_sources").notNull().default('[]'),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -50,9 +50,9 @@ export const analytics = pgTable("analytics", {
   name: text("name").notNull(),
   description: text("description"),
   pseudocode: text("pseudocode"),
-  dataComponentIds: text("data_component_ids").array().notNull(),
-  logSources: jsonb("log_sources").notNull(),
-  mutableElements: jsonb("mutable_elements").notNull(),
+  dataComponentIds: text("data_component_ids").array().default(sql`'{}'::text[]`),
+  logSources: jsonb("log_sources").default('[]'),
+  mutableElements: jsonb("mutable_elements").default('[]'),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

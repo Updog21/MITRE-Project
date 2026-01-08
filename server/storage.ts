@@ -1,38 +1,186 @@
-import { type User, type InsertUser } from "@shared/schema";
+import { 
+  type User, 
+  type InsertUser, 
+  type Product,
+  type InsertProduct,
+  type DataComponent,
+  type InsertDataComponent,
+  type DetectionStrategy,
+  type InsertDetectionStrategy,
+  type Analytic,
+  type InsertAnalytic,
+  type MitreAsset,
+  type InsertMitreAsset,
+  users,
+  products,
+  dataComponents,
+  detectionStrategies,
+  analytics,
+  mitreAssets
+} from "@shared/schema";
 import { randomUUID } from "crypto";
-
-// modify the interface with any CRUD methods
-// you might need
+import { db } from "./db";
+import { eq, like, or, sql } from "drizzle-orm";
 
 export interface IStorage {
+  // User management
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  
+  // Product operations
+  searchProducts(query: string): Promise<Product[]>;
+  getProductById(productId: string): Promise<Product | undefined>;
+  createProduct(product: InsertProduct): Promise<Product>;
+  bulkCreateProducts(productList: InsertProduct[]): Promise<void>;
+  
+  // Data Component operations
+  getAllDataComponents(): Promise<DataComponent[]>;
+  getDataComponentById(componentId: string): Promise<DataComponent | undefined>;
+  createDataComponent(component: InsertDataComponent): Promise<DataComponent>;
+  bulkCreateDataComponents(components: InsertDataComponent[]): Promise<void>;
+  
+  // Detection Strategy operations
+  getAllDetectionStrategies(): Promise<DetectionStrategy[]>;
+  getDetectionStrategyById(strategyId: string): Promise<DetectionStrategy | undefined>;
+  createDetectionStrategy(strategy: InsertDetectionStrategy): Promise<DetectionStrategy>;
+  bulkCreateDetectionStrategies(strategies: InsertDetectionStrategy[]): Promise<void>;
+  
+  // Analytic operations
+  getAnalyticsByStrategyId(strategyId: string): Promise<Analytic[]>;
+  createAnalytic(analytic: InsertAnalytic): Promise<Analytic>;
+  bulkCreateAnalytics(analyticList: InsertAnalytic[]): Promise<void>;
+  
+  // MITRE Asset operations
+  getAllMitreAssets(): Promise<MitreAsset[]>;
+  getMitreAssetById(assetId: string): Promise<MitreAsset | undefined>;
+  createMitreAsset(asset: InsertMitreAsset): Promise<MitreAsset>;
+  bulkCreateMitreAssets(assetList: InsertMitreAsset[]): Promise<void>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User>;
-
-  constructor() {
-    this.users = new Map();
-  }
-
+export class PostgresStorage implements IStorage {
+  // User management
   async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+    const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
+    return result[0];
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+    const result = await db.select().from(users).where(eq(users.username, username)).limit(1);
+    return result[0];
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
-    return user;
+    const result = await db.insert(users).values(insertUser).returning();
+    return result[0];
+  }
+
+  // Product operations
+  async searchProducts(query: string): Promise<Product[]> {
+    const searchTerm = `%${query.toLowerCase()}%`;
+    return await db.select().from(products).where(
+      or(
+        sql`LOWER(${products.productName}) LIKE ${searchTerm}`,
+        sql`LOWER(${products.vendor}) LIKE ${searchTerm}`,
+        sql`LOWER(${products.description}) LIKE ${searchTerm}`
+      )
+    );
+  }
+
+  async getProductById(productId: string): Promise<Product | undefined> {
+    const result = await db.select().from(products).where(eq(products.productId, productId)).limit(1);
+    return result[0];
+  }
+
+  async createProduct(product: InsertProduct): Promise<Product> {
+    const result = await db.insert(products).values(product).returning();
+    return result[0];
+  }
+
+  async bulkCreateProducts(productList: InsertProduct[]): Promise<void> {
+    if (productList.length > 0) {
+      await db.insert(products).values(productList).onConflictDoNothing();
+    }
+  }
+
+  // Data Component operations
+  async getAllDataComponents(): Promise<DataComponent[]> {
+    return await db.select().from(dataComponents);
+  }
+
+  async getDataComponentById(componentId: string): Promise<DataComponent | undefined> {
+    const result = await db.select().from(dataComponents).where(eq(dataComponents.componentId, componentId)).limit(1);
+    return result[0];
+  }
+
+  async createDataComponent(component: InsertDataComponent): Promise<DataComponent> {
+    const result = await db.insert(dataComponents).values(component).returning();
+    return result[0];
+  }
+
+  async bulkCreateDataComponents(components: InsertDataComponent[]): Promise<void> {
+    if (components.length > 0) {
+      await db.insert(dataComponents).values(components).onConflictDoNothing();
+    }
+  }
+
+  // Detection Strategy operations
+  async getAllDetectionStrategies(): Promise<DetectionStrategy[]> {
+    return await db.select().from(detectionStrategies);
+  }
+
+  async getDetectionStrategyById(strategyId: string): Promise<DetectionStrategy | undefined> {
+    const result = await db.select().from(detectionStrategies).where(eq(detectionStrategies.strategyId, strategyId)).limit(1);
+    return result[0];
+  }
+
+  async createDetectionStrategy(strategy: InsertDetectionStrategy): Promise<DetectionStrategy> {
+    const result = await db.insert(detectionStrategies).values(strategy).returning();
+    return result[0];
+  }
+
+  async bulkCreateDetectionStrategies(strategies: InsertDetectionStrategy[]): Promise<void> {
+    if (strategies.length > 0) {
+      await db.insert(detectionStrategies).values(strategies).onConflictDoNothing();
+    }
+  }
+
+  // Analytic operations
+  async getAnalyticsByStrategyId(strategyId: string): Promise<Analytic[]> {
+    return await db.select().from(analytics).where(eq(analytics.strategyId, strategyId));
+  }
+
+  async createAnalytic(analytic: InsertAnalytic): Promise<Analytic> {
+    const result = await db.insert(analytics).values(analytic).returning();
+    return result[0];
+  }
+
+  async bulkCreateAnalytics(analyticList: InsertAnalytic[]): Promise<void> {
+    if (analyticList.length > 0) {
+      await db.insert(analytics).values(analyticList).onConflictDoNothing();
+    }
+  }
+
+  // MITRE Asset operations
+  async getAllMitreAssets(): Promise<MitreAsset[]> {
+    return await db.select().from(mitreAssets);
+  }
+
+  async getMitreAssetById(assetId: string): Promise<MitreAsset | undefined> {
+    const result = await db.select().from(mitreAssets).where(eq(mitreAssets.assetId, assetId)).limit(1);
+    return result[0];
+  }
+
+  async createMitreAsset(asset: InsertMitreAsset): Promise<MitreAsset> {
+    const result = await db.insert(mitreAssets).values(asset).returning();
+    return result[0];
+  }
+
+  async bulkCreateMitreAssets(assetList: InsertMitreAsset[]): Promise<void> {
+    if (assetList.length > 0) {
+      await db.insert(mitreAssets).values(assetList).onConflictDoNothing();
+    }
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new PostgresStorage();
