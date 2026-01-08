@@ -1,131 +1,239 @@
 import { useState } from 'react';
-import { Sidebar } from '@/components/Sidebar';
-import { ProductSearch } from '@/components/ProductSearch';
-import { ValueChainDisplay } from '@/components/ValueChainDisplay';
-import { AIMapperFlow } from '@/components/AIMapperFlow';
-import { Asset, getProductMapping, ProductMapping } from '@/lib/v18Data';
+import { Search, Shield, Database, Target, Layers, ChevronRight, Cpu } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Shield, Database, Cpu, Target } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { searchProducts, Asset, ctidProducts, detectionStrategies, dataComponents } from '@/lib/mitreData';
+import { ProductView } from '@/components/ProductView';
 
-type ViewState = 'search' | 'detail' | 'ai-mapper';
+type ViewState = 'search' | 'product';
 
 export default function Dashboard() {
   const [view, setView] = useState<ViewState>('search');
-  const [selectedMapping, setSelectedMapping] = useState<ProductMapping | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedProduct, setSelectedProduct] = useState<Asset | null>(null);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<Asset[]>([]);
+  const [hasSearched, setHasSearched] = useState(false);
 
-  const handleSelectProduct = (asset: Asset) => {
-    const mapping = getProductMapping(asset.id);
-    if (mapping) {
-      setSelectedMapping(mapping);
-      setView('detail');
-    }
+  const handleSearch = () => {
+    if (!query.trim()) return;
+    const found = searchProducts(query);
+    setResults(found);
+    setHasSearched(true);
   };
 
-  const handleRequestAIMapping = () => {
-    setView('ai-mapper');
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') handleSearch();
   };
 
-  const handleBackToSearch = () => {
+  const handleSelectProduct = (product: Asset) => {
+    setSelectedProduct(product);
+    setView('product');
+  };
+
+  const handleBack = () => {
     setView('search');
-    setSelectedMapping(null);
+    setSelectedProduct(null);
   };
 
-  const handleAIComplete = () => {
-    setView('search');
-  };
+  if (view === 'product' && selectedProduct) {
+    return (
+      <div className="min-h-screen bg-background">
+        <div className="p-6">
+          <ProductView product={selectedProduct} onBack={handleBack} />
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
-      <Sidebar />
-      
-      <main className="flex-1 overflow-auto">
-        <div className="grid-pattern min-h-full">
-          <div className="p-6 space-y-6">
-            {view === 'search' && (
-              <>
-                <header className="text-center max-w-3xl mx-auto">
-                  <div className="flex items-center justify-center gap-3 mb-4">
-                    <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center glow-primary">
-                      <Shield className="w-7 h-7 text-primary" />
-                    </div>
-                  </div>
-                  <h1 className="text-3xl font-bold text-foreground tracking-tight">OpenTidal</h1>
-                  <p className="text-muted-foreground mt-2">
-                    Threat-Informed Defense Platform — Map security products to MITRE ATT&CK v18
-                  </p>
-                </header>
+    <div className="min-h-screen bg-background">
+      <div className="p-6 space-y-8">
+        <header className="text-center max-w-3xl mx-auto pt-8">
+          <div className="flex items-center justify-center gap-3 mb-6">
+            <div className="w-16 h-16 rounded-2xl bg-primary/20 flex items-center justify-center">
+              <Shield className="w-9 h-9 text-primary" />
+            </div>
+          </div>
+          <h1 className="text-4xl font-bold text-foreground tracking-tight">OpenTidal</h1>
+          <p className="text-lg text-muted-foreground mt-3 max-w-xl mx-auto">
+            Threat-Informed Defense Platform — Map security products to MITRE ATT&CK Detection Strategies
+          </p>
+        </header>
 
-                <div className="max-w-3xl mx-auto">
-                  <ProductSearch 
-                    onSelectProduct={handleSelectProduct}
-                    onRequestAIMapping={handleRequestAIMapping}
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-4xl mx-auto mt-8">
-                  <Card className="bg-card/30 border-border">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm flex items-center gap-2">
-                        <Database className="w-4 h-4 text-green-400" />
-                        CTID Mappings
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-xs text-muted-foreground">
-                        Search verified mappings from the Center for Threat-Informed Defense Security Stack Mappings project.
-                      </p>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="bg-card/30 border-border">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm flex items-center gap-2">
-                        <Cpu className="w-4 h-4 text-primary" />
-                        AI Auto-Mapping
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-xs text-muted-foreground">
-                        For products not in CTID, AI analyzes capabilities and maps to ATT&CK techniques automatically.
-                      </p>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="bg-card/30 border-border">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm flex items-center gap-2">
-                        <Target className="w-4 h-4 text-red-400" />
-                        Value Analysis
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-xs text-muted-foreground">
-                        See the full v18 logic chain: Asset → Data Components → Analytics → Techniques.
-                      </p>
-                    </CardContent>
-                  </Card>
-                </div>
-              </>
-            )}
-
-            {view === 'detail' && selectedMapping && (
-              <ValueChainDisplay 
-                mapping={selectedMapping}
-                onBack={handleBackToSearch}
+        <div className="max-w-2xl mx-auto">
+          <div className="flex gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Search products (Windows, Sysmon, Azure, Linux...)"
+                className="pl-12 h-14 text-lg bg-card border-border"
+                data-testid="input-product-search"
               />
-            )}
-
-            {view === 'ai-mapper' && (
-              <AIMapperFlow
-                initialQuery={searchQuery}
-                onComplete={handleAIComplete}
-                onCancel={handleBackToSearch}
-              />
-            )}
+            </div>
+            <Button onClick={handleSearch} size="lg" className="h-14 px-8" data-testid="button-search">
+              Search
+            </Button>
           </div>
         </div>
-      </main>
+
+        {hasSearched && (
+          <div className="max-w-4xl mx-auto">
+            {results.length > 0 ? (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Database className="w-4 h-4 text-green-400" />
+                  <span>Found {results.length} product(s) in CTID Security Stack Mappings</span>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {results.map((product) => (
+                    <Card 
+                      key={product.id}
+                      className="bg-card/50 border-border hover:border-primary/50 transition-all cursor-pointer group"
+                      onClick={() => handleSelectProduct(product)}
+                      data-testid={`card-result-${product.id}`}
+                    >
+                      <CardContent className="p-5">
+                        <div className="flex items-start gap-4">
+                          <div className="w-12 h-12 rounded-xl bg-green-500/20 flex items-center justify-center flex-shrink-0">
+                            <Database className="w-6 h-6 text-green-400" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm text-muted-foreground">{product.vendor}</span>
+                            <h3 className="text-lg font-semibold text-foreground group-hover:text-primary transition-colors">
+                              {product.productName}
+                            </h3>
+                            <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                              {product.description}
+                            </p>
+                            <div className="flex items-center gap-2 mt-3">
+                              {product.platforms.map(p => (
+                                <Badge key={p} variant="secondary" className="text-xs">{p}</Badge>
+                              ))}
+                              <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-xs">
+                                CTID
+                              </Badge>
+                            </div>
+                          </div>
+                          <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors flex-shrink-0" />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <Card className="bg-card/50 border-border border-dashed">
+                <CardContent className="py-12 text-center">
+                  <Cpu className="w-14 h-14 text-muted-foreground mx-auto mb-4 opacity-30" />
+                  <h3 className="text-xl font-semibold text-foreground mb-2">
+                    No CTID mapping found for "{query}"
+                  </h3>
+                  <p className="text-muted-foreground mb-6 max-w-md mx-auto">
+                    This product isn't in the MITRE CTID Security Stack Mappings database yet.
+                    Would you like to use AI to create a mapping?
+                  </p>
+                  <Button data-testid="button-ai-mapping">
+                    <Cpu className="w-4 h-4 mr-2" />
+                    Create AI Mapping
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
+
+        {!hasSearched && (
+          <div className="max-w-4xl mx-auto space-y-8">
+            <div>
+              <h3 className="text-sm font-medium text-muted-foreground mb-4">Quick Access</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {ctidProducts.map((product) => (
+                  <Card 
+                    key={product.id}
+                    className="bg-card/30 border-border hover:border-primary/50 transition-all cursor-pointer group"
+                    onClick={() => handleSelectProduct(product)}
+                    data-testid={`card-quick-${product.id}`}
+                  >
+                    <CardContent className="p-4">
+                      <span className="text-xs text-muted-foreground">{product.vendor}</span>
+                      <h4 className="font-medium text-foreground group-hover:text-primary transition-colors text-sm mt-0.5">
+                        {product.productName}
+                      </h4>
+                      <div className="flex gap-1 mt-2">
+                        {product.platforms.map(p => (
+                          <Badge key={p} variant="secondary" className="text-[10px]">{p}</Badge>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <Card className="bg-card/30 border-border">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Database className="w-5 h-5 text-green-400" />
+                    CTID Mappings
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    Search verified product mappings from the Center for Threat-Informed Defense.
+                  </p>
+                  <div className="mt-4 text-2xl font-bold text-green-400">
+                    {ctidProducts.length}
+                    <span className="text-sm font-normal text-muted-foreground ml-2">products</span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-card/30 border-border">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Target className="w-5 h-5 text-primary" />
+                    Detection Strategies
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    MITRE detection strategies with analytics, log sources, and mutable elements.
+                  </p>
+                  <div className="mt-4 text-2xl font-bold text-primary">
+                    {detectionStrategies.length}
+                    <span className="text-sm font-normal text-muted-foreground ml-2">strategies</span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-card/30 border-border">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Layers className="w-5 h-5 text-blue-400" />
+                    Data Components
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    Log types with event channels, event codes, and required fields.
+                  </p>
+                  <div className="mt-4 text-2xl font-bold text-blue-400">
+                    {Object.keys(dataComponents).length}
+                    <span className="text-sm font-normal text-muted-foreground ml-2">components</span>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

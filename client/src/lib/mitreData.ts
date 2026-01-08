@@ -1,0 +1,436 @@
+export interface MutableElement {
+  name: string;
+  description: string;
+  fieldPath?: string;
+}
+
+export interface PlatformMapping {
+  platform: 'Windows' | 'Linux' | 'macOS' | 'ESXi' | 'Azure AD' | 'Network';
+  eventSource: string;
+  eventId?: string;
+  logChannel?: string;
+  notes?: string;
+}
+
+export interface DataComponentRef {
+  id: string;
+  name: string;
+  description: string;
+  dataSource: string;
+  mutableElements: MutableElement[];
+  platforms: PlatformMapping[];
+}
+
+export interface AnalyticItem {
+  id: string;
+  name: string;
+  description: string;
+  pseudocode?: string;
+  dataComponents: string[];
+  platforms: string[];
+}
+
+export interface DetectionStrategy {
+  id: string;
+  name: string;
+  description: string;
+  techniques: string[];
+  analytics: AnalyticItem[];
+  dataComponentRefs: string[];
+}
+
+export interface Technique {
+  id: string;
+  name: string;
+  tactic: string;
+  description: string;
+  usedByGroups: string[];
+  detectionStrategies: string[];
+}
+
+export interface Asset {
+  id: string;
+  vendor: string;
+  productName: string;
+  deployment?: string;
+  description: string;
+  platforms: string[];
+  dataComponentIds: string[];
+  source: 'ctid' | 'custom' | 'ai-pending';
+}
+
+export const dataComponents: Record<string, DataComponentRef> = {
+  'DC0082': {
+    id: 'DC0082',
+    name: 'Network Connection Creation',
+    description: 'Initial construction of a network connection, such as capturing socket information with a source/destination IP and port(s).',
+    dataSource: 'Network Traffic',
+    mutableElements: [
+      { name: 'src_ip', description: 'Source IP address of the network connection', fieldPath: 'source.ip' },
+      { name: 'dst_ip', description: 'Destination IP address of the network connection', fieldPath: 'destination.ip' },
+      { name: 'dst_port', description: 'Destination port number', fieldPath: 'destination.port' },
+      { name: 'src_port', description: 'Source port number', fieldPath: 'source.port' },
+      { name: 'protocol', description: 'Network protocol (TCP/UDP)', fieldPath: 'network.protocol' },
+      { name: 'process_name', description: 'Name of process initiating connection', fieldPath: 'process.name' },
+      { name: 'user', description: 'User context of process', fieldPath: 'user.name' },
+    ],
+    platforms: [
+      { platform: 'Windows', eventSource: 'Sysmon', eventId: '3', logChannel: 'Microsoft-Windows-Sysmon/Operational', notes: 'Network connection detected' },
+      { platform: 'Windows', eventSource: 'Windows Firewall', eventId: '5156', logChannel: 'Security', notes: 'Windows Filtering Platform permitted connection' },
+      { platform: 'Linux', eventSource: 'Auditd', eventId: 'SYSCALL connect', logChannel: '/var/log/audit/audit.log' },
+      { platform: 'macOS', eventSource: 'Endpoint Security', eventId: 'ES_EVENT_TYPE_NOTIFY_CONNECT' },
+    ]
+  },
+  'DC0017': {
+    id: 'DC0017',
+    name: 'Command Execution',
+    description: 'The execution of a line of text, potentially with arguments, created from program code.',
+    dataSource: 'Command',
+    mutableElements: [
+      { name: 'command_line', description: 'Full command line including arguments', fieldPath: 'process.command_line' },
+      { name: 'process_name', description: 'Name of executing process', fieldPath: 'process.name' },
+      { name: 'parent_process', description: 'Parent process name', fieldPath: 'process.parent.name' },
+      { name: 'user', description: 'User executing command', fieldPath: 'user.name' },
+      { name: 'working_directory', description: 'Current working directory', fieldPath: 'process.working_directory' },
+    ],
+    platforms: [
+      { platform: 'Windows', eventSource: 'Security', eventId: '4688', logChannel: 'Security', notes: 'Process creation with command line auditing' },
+      { platform: 'Windows', eventSource: 'Sysmon', eventId: '1', logChannel: 'Microsoft-Windows-Sysmon/Operational', notes: 'Process creation' },
+      { platform: 'Linux', eventSource: 'Auditd', eventId: 'EXECVE', logChannel: '/var/log/audit/audit.log' },
+      { platform: 'macOS', eventSource: 'Endpoint Security', eventId: 'ES_EVENT_TYPE_NOTIFY_EXEC' },
+    ]
+  },
+  'DC0005': {
+    id: 'DC0005',
+    name: 'Process Creation',
+    description: 'The initial creation of a new process, typically by another process.',
+    dataSource: 'Process',
+    mutableElements: [
+      { name: 'process_id', description: 'Process ID', fieldPath: 'process.pid' },
+      { name: 'process_name', description: 'Process executable name', fieldPath: 'process.name' },
+      { name: 'process_path', description: 'Full path to executable', fieldPath: 'process.executable' },
+      { name: 'command_line', description: 'Full command line', fieldPath: 'process.command_line' },
+      { name: 'parent_process_id', description: 'Parent process ID', fieldPath: 'process.parent.pid' },
+      { name: 'parent_process_name', description: 'Parent process name', fieldPath: 'process.parent.name' },
+      { name: 'user', description: 'User account', fieldPath: 'user.name' },
+      { name: 'integrity_level', description: 'Process integrity level', fieldPath: 'process.integrity_level' },
+      { name: 'hashes', description: 'File hashes (MD5, SHA1, SHA256)', fieldPath: 'file.hash.*' },
+    ],
+    platforms: [
+      { platform: 'Windows', eventSource: 'Security', eventId: '4688', logChannel: 'Security', notes: 'Requires "Audit Process Creation" policy' },
+      { platform: 'Windows', eventSource: 'Sysmon', eventId: '1', logChannel: 'Microsoft-Windows-Sysmon/Operational', notes: 'Recommended for command line and hash data' },
+      { platform: 'Linux', eventSource: 'Auditd', eventId: 'EXECVE', logChannel: '/var/log/audit/audit.log' },
+      { platform: 'macOS', eventSource: 'Endpoint Security', eventId: 'ES_EVENT_TYPE_NOTIFY_EXEC' },
+      { platform: 'ESXi', eventSource: 'ESXi Shell', logChannel: '/var/log/shell.log' },
+    ]
+  },
+  'DC0024': {
+    id: 'DC0024',
+    name: 'Script Execution',
+    description: 'The execution of scripts such as PowerShell, Python, Bash, etc.',
+    dataSource: 'Script',
+    mutableElements: [
+      { name: 'script_block_text', description: 'Full script content', fieldPath: 'powershell.script_block_text' },
+      { name: 'script_path', description: 'Path to script file', fieldPath: 'file.path' },
+      { name: 'script_name', description: 'Script filename', fieldPath: 'file.name' },
+      { name: 'host_application', description: 'Host application running script', fieldPath: 'process.name' },
+      { name: 'user', description: 'User executing script', fieldPath: 'user.name' },
+      { name: 'runspace_id', description: 'PowerShell runspace identifier', fieldPath: 'powershell.runspace_id' },
+    ],
+    platforms: [
+      { platform: 'Windows', eventSource: 'PowerShell', eventId: '4103', logChannel: 'Microsoft-Windows-PowerShell/Operational', notes: 'Module logging' },
+      { platform: 'Windows', eventSource: 'PowerShell', eventId: '4104', logChannel: 'Microsoft-Windows-PowerShell/Operational', notes: 'Script block logging' },
+      { platform: 'Windows', eventSource: 'PowerShell', eventId: '800', logChannel: 'Windows PowerShell', notes: 'Pipeline execution' },
+      { platform: 'Linux', eventSource: 'Bash', logChannel: '/var/log/bash.log or .bash_history', notes: 'Requires HISTFILE configuration' },
+    ]
+  },
+  'DC0001': {
+    id: 'DC0001',
+    name: 'User Account Authentication',
+    description: 'Logging of user authentication attempts including success and failure.',
+    dataSource: 'Logon Session',
+    mutableElements: [
+      { name: 'user', description: 'Username attempting authentication', fieldPath: 'user.name' },
+      { name: 'domain', description: 'User domain', fieldPath: 'user.domain' },
+      { name: 'logon_type', description: 'Type of logon (interactive, network, etc.)', fieldPath: 'winlog.logon.type' },
+      { name: 'source_ip', description: 'Source IP of authentication', fieldPath: 'source.ip' },
+      { name: 'workstation', description: 'Source workstation name', fieldPath: 'source.hostname' },
+      { name: 'auth_package', description: 'Authentication package used', fieldPath: 'winlog.auth_package' },
+      { name: 'status', description: 'Success or failure status', fieldPath: 'event.outcome' },
+    ],
+    platforms: [
+      { platform: 'Windows', eventSource: 'Security', eventId: '4624', logChannel: 'Security', notes: 'Successful logon' },
+      { platform: 'Windows', eventSource: 'Security', eventId: '4625', logChannel: 'Security', notes: 'Failed logon' },
+      { platform: 'Windows', eventSource: 'Security', eventId: '4648', logChannel: 'Security', notes: 'Explicit credential logon' },
+      { platform: 'Linux', eventSource: 'PAM', logChannel: '/var/log/auth.log or /var/log/secure' },
+      { platform: 'Azure AD', eventSource: 'Sign-in Logs', notes: 'Azure AD sign-in activity' },
+    ]
+  },
+  'DC0036': {
+    id: 'DC0036',
+    name: 'Scheduled Job Creation',
+    description: 'Creation of scheduled tasks or cron jobs for automated execution.',
+    dataSource: 'Scheduled Job',
+    mutableElements: [
+      { name: 'task_name', description: 'Name of scheduled task', fieldPath: 'winlog.task_scheduler.task_name' },
+      { name: 'task_content', description: 'Task definition XML or content', fieldPath: 'winlog.task_content' },
+      { name: 'action', description: 'Action to be executed', fieldPath: 'winlog.task_scheduler.action' },
+      { name: 'trigger', description: 'Trigger conditions', fieldPath: 'winlog.task_scheduler.trigger' },
+      { name: 'user_context', description: 'User context for execution', fieldPath: 'user.name' },
+      { name: 'author', description: 'Task author/creator', fieldPath: 'winlog.task_scheduler.author' },
+    ],
+    platforms: [
+      { platform: 'Windows', eventSource: 'Security', eventId: '4698', logChannel: 'Security', notes: 'Scheduled task created' },
+      { platform: 'Windows', eventSource: 'Task Scheduler', eventId: '106', logChannel: 'Microsoft-Windows-TaskScheduler/Operational', notes: 'Task registered' },
+      { platform: 'Linux', eventSource: 'Cron', logChannel: '/var/log/cron' },
+    ]
+  },
+};
+
+export const detectionStrategies: DetectionStrategy[] = [
+  {
+    id: 'DET0002',
+    name: 'Outbound Connection to Malicious Infrastructure',
+    description: 'This detection strategy identifies outbound network connections from internal hosts to known malicious or suspicious external infrastructure. These connections may indicate command and control (C2) activity, data exfiltration, or other adversary communication channels.',
+    techniques: ['T1071', 'T1571', 'T1573'],
+    analytics: [
+      {
+        id: 'AN0002',
+        name: 'Outbound Connection to Rare External IP',
+        description: 'Detects outbound connections to IP addresses that are rarely seen in the environment, which may indicate C2 beaconing or communication with adversary infrastructure.',
+        pseudocode: `SELECT src_ip, dst_ip, dst_port, process_name, user
+FROM network_connections
+WHERE direction = 'outbound'
+  AND dst_ip NOT IN (SELECT ip FROM known_good_destinations)
+  AND dst_ip IN (SELECT ip FROM threat_intel_iocs)
+  OR connection_count < 5 OVER LAST 30 DAYS`,
+        dataComponents: ['DC0082'],
+        platforms: ['Windows', 'Linux', 'macOS']
+      },
+      {
+        id: 'AN0003',
+        name: 'Process Making Unusual Network Connection',
+        description: 'Detects when a process not typically associated with network activity initiates an outbound connection.',
+        pseudocode: `SELECT process_name, process_path, dst_ip, dst_port, user
+FROM network_connections
+JOIN process_creation ON network_connections.process_id = process_creation.process_id
+WHERE process_name IN ('notepad.exe', 'calc.exe', 'mspaint.exe', 'regsvr32.exe')
+  AND direction = 'outbound'`,
+        dataComponents: ['DC0082', 'DC0005'],
+        platforms: ['Windows']
+      }
+    ],
+    dataComponentRefs: ['DC0082', 'DC0005']
+  },
+  {
+    id: 'DET0455',
+    name: 'Abuse of PowerShell for Arbitrary Execution',
+    description: 'This detection strategy identifies suspicious PowerShell usage patterns that may indicate malicious script execution, including encoded commands, execution policy bypass, download cradles, and other evasion techniques commonly used by adversaries.',
+    techniques: ['T1059.001', 'T1059'],
+    analytics: [
+      {
+        id: 'AN0455',
+        name: 'PowerShell Encoded Command Execution',
+        description: 'Detects PowerShell execution with encoded commands, which is commonly used to obfuscate malicious scripts and evade detection.',
+        pseudocode: `SELECT process_name, command_line, parent_process, user
+FROM process_creation
+WHERE process_name ILIKE '%powershell%' OR process_name ILIKE '%pwsh%'
+  AND (
+    command_line ILIKE '%-enc%'
+    OR command_line ILIKE '%-encodedcommand%'
+    OR command_line ILIKE '%-e %' AND LENGTH(SPLIT(command_line, ' ')[-1]) > 100
+  )`,
+        dataComponents: ['DC0005', 'DC0017'],
+        platforms: ['Windows']
+      },
+      {
+        id: 'AN0456',
+        name: 'PowerShell Download Cradle',
+        description: 'Detects PowerShell downloading and executing content from the internet, a common technique for staging malware.',
+        pseudocode: `SELECT process_name, command_line, user
+FROM process_creation
+WHERE process_name ILIKE '%powershell%'
+  AND (
+    command_line ILIKE '%downloadstring%'
+    OR command_line ILIKE '%downloadfile%'
+    OR command_line ILIKE '%invoke-webrequest%'
+    OR command_line ILIKE '%iwr %'
+    OR command_line ILIKE '%curl %'
+    OR command_line ILIKE '%wget %'
+  )
+  AND (
+    command_line ILIKE '%iex%'
+    OR command_line ILIKE '%invoke-expression%'
+    OR command_line ILIKE '%.invoke(%'
+  )`,
+        dataComponents: ['DC0005', 'DC0017', 'DC0024'],
+        platforms: ['Windows']
+      },
+      {
+        id: 'AN0457',
+        name: 'PowerShell Execution Policy Bypass',
+        description: 'Detects attempts to bypass PowerShell execution policy restrictions.',
+        pseudocode: `SELECT process_name, command_line, parent_process, user
+FROM process_creation  
+WHERE process_name ILIKE '%powershell%'
+  AND (
+    command_line ILIKE '%-ep bypass%'
+    OR command_line ILIKE '%-executionpolicy bypass%'
+    OR command_line ILIKE '%-exec bypass%'
+    OR command_line ILIKE '%set-executionpolicy%bypass%'
+  )`,
+        dataComponents: ['DC0005', 'DC0017'],
+        platforms: ['Windows']
+      }
+    ],
+    dataComponentRefs: ['DC0005', 'DC0017', 'DC0024']
+  },
+  {
+    id: 'DET0500',
+    name: 'Scheduled Task Persistence',
+    description: 'This detection strategy identifies the creation or modification of scheduled tasks that may be used for persistence, privilege escalation, or execution of malicious payloads.',
+    techniques: ['T1053.005', 'T1053'],
+    analytics: [
+      {
+        id: 'AN0500',
+        name: 'Scheduled Task Created with Suspicious Action',
+        description: 'Detects scheduled tasks created with suspicious executable paths or command interpreters.',
+        pseudocode: `SELECT task_name, task_content, user_context, action
+FROM scheduled_task_events
+WHERE event_type = 'created'
+  AND (
+    action ILIKE '%cmd.exe%'
+    OR action ILIKE '%powershell%'
+    OR action ILIKE '%mshta%'
+    OR action ILIKE '%wscript%'
+    OR action ILIKE '%cscript%'
+    OR action ILIKE '%rundll32%'
+    OR action ILIKE '%regsvr32%'
+    OR action ILIKE '%\\temp\\%'
+    OR action ILIKE '%\\appdata\\%'
+  )`,
+        dataComponents: ['DC0036', 'DC0005'],
+        platforms: ['Windows']
+      }
+    ],
+    dataComponentRefs: ['DC0036', 'DC0005']
+  },
+  {
+    id: 'DET0001',
+    name: 'Credential Access via Brute Force',
+    description: 'This detection strategy identifies brute force attacks against user accounts, including password spraying and credential stuffing attempts.',
+    techniques: ['T1110', 'T1110.001', 'T1110.003'],
+    analytics: [
+      {
+        id: 'AN0001',
+        name: 'Multiple Failed Logon Attempts',
+        description: 'Detects multiple failed authentication attempts from a single source, which may indicate brute force activity.',
+        pseudocode: `SELECT src_ip, user, COUNT(*) as failed_attempts
+FROM authentication_events
+WHERE status = 'failure'
+  AND timestamp > NOW() - INTERVAL '15 minutes'
+GROUP BY src_ip, user
+HAVING COUNT(*) > 10`,
+        dataComponents: ['DC0001'],
+        platforms: ['Windows', 'Linux', 'Azure AD']
+      },
+      {
+        id: 'AN0004',
+        name: 'Password Spray Detection',
+        description: 'Detects attempts to authenticate with common passwords across multiple accounts.',
+        pseudocode: `SELECT src_ip, COUNT(DISTINCT user) as unique_users, COUNT(*) as total_attempts
+FROM authentication_events
+WHERE status = 'failure'
+  AND timestamp > NOW() - INTERVAL '1 hour'
+GROUP BY src_ip
+HAVING COUNT(DISTINCT user) > 20`,
+        dataComponents: ['DC0001'],
+        platforms: ['Windows', 'Azure AD']
+      }
+    ],
+    dataComponentRefs: ['DC0001']
+  }
+];
+
+export const techniques: Technique[] = [
+  { id: 'T1059', name: 'Command and Scripting Interpreter', tactic: 'Execution', description: 'Adversaries may abuse command and script interpreters to execute commands, scripts, or binaries.', usedByGroups: ['APT29', 'APT28', 'Lazarus'], detectionStrategies: ['DET0455'] },
+  { id: 'T1059.001', name: 'PowerShell', tactic: 'Execution', description: 'Adversaries may abuse PowerShell commands and scripts for execution.', usedByGroups: ['APT29', 'APT28', 'Lazarus'], detectionStrategies: ['DET0455'] },
+  { id: 'T1071', name: 'Application Layer Protocol', tactic: 'Command and Control', description: 'Adversaries may communicate using application layer protocols to avoid detection.', usedByGroups: ['APT29', 'APT28'], detectionStrategies: ['DET0002'] },
+  { id: 'T1571', name: 'Non-Standard Port', tactic: 'Command and Control', description: 'Adversaries may communicate using a protocol on a non-standard port.', usedByGroups: ['APT28', 'Lazarus'], detectionStrategies: ['DET0002'] },
+  { id: 'T1573', name: 'Encrypted Channel', tactic: 'Command and Control', description: 'Adversaries may employ encryption to conceal command and control traffic.', usedByGroups: ['APT29'], detectionStrategies: ['DET0002'] },
+  { id: 'T1053', name: 'Scheduled Task/Job', tactic: 'Execution, Persistence, Privilege Escalation', description: 'Adversaries may abuse task scheduling functionality to facilitate execution.', usedByGroups: ['APT29', 'APT28', 'Lazarus'], detectionStrategies: ['DET0500'] },
+  { id: 'T1053.005', name: 'Scheduled Task', tactic: 'Execution, Persistence, Privilege Escalation', description: 'Adversaries may abuse the Windows Task Scheduler for persistence.', usedByGroups: ['APT29', 'APT28', 'Lazarus'], detectionStrategies: ['DET0500'] },
+  { id: 'T1110', name: 'Brute Force', tactic: 'Credential Access', description: 'Adversaries may use brute force techniques to gain access to accounts.', usedByGroups: ['APT28', 'Lazarus'], detectionStrategies: ['DET0001'] },
+  { id: 'T1110.001', name: 'Password Guessing', tactic: 'Credential Access', description: 'Adversaries may guess passwords to attempt access to accounts.', usedByGroups: ['APT28'], detectionStrategies: ['DET0001'] },
+  { id: 'T1110.003', name: 'Password Spraying', tactic: 'Credential Access', description: 'Adversaries may use a single password against many accounts.', usedByGroups: ['APT29', 'APT28'], detectionStrategies: ['DET0001'] },
+];
+
+export const ctidProducts: Asset[] = [
+  {
+    id: 'CTID-WIN-SECURITY',
+    vendor: 'Microsoft',
+    productName: 'Windows Security Event Log',
+    deployment: 'On-premises',
+    description: 'Native Windows security auditing providing authentication, process, and privilege use events.',
+    platforms: ['Windows'],
+    dataComponentIds: ['DC0001', 'DC0005', 'DC0017', 'DC0036'],
+    source: 'ctid',
+  },
+  {
+    id: 'CTID-SYSMON',
+    vendor: 'Microsoft',
+    productName: 'Sysmon',
+    deployment: 'On-premises',
+    description: 'Windows system service and device driver that logs detailed system activity to the Windows event log.',
+    platforms: ['Windows'],
+    dataComponentIds: ['DC0005', 'DC0017', 'DC0082', 'DC0024'],
+    source: 'ctid',
+  },
+  {
+    id: 'CTID-AZURE-ENTRA',
+    vendor: 'Microsoft',
+    productName: 'Azure Entra ID',
+    deployment: 'Cloud',
+    description: 'Cloud-based identity and access management with comprehensive sign-in and audit logging.',
+    platforms: ['Azure AD'],
+    dataComponentIds: ['DC0001'],
+    source: 'ctid',
+  },
+  {
+    id: 'CTID-LINUX-AUDITD',
+    vendor: 'Linux',
+    productName: 'Auditd',
+    deployment: 'On-premises',
+    description: 'Linux audit daemon providing comprehensive system call and security event auditing.',
+    platforms: ['Linux'],
+    dataComponentIds: ['DC0001', 'DC0005', 'DC0017', 'DC0082'],
+    source: 'ctid',
+  },
+];
+
+export function searchProducts(query: string): Asset[] {
+  const q = query.toLowerCase();
+  return ctidProducts.filter(p =>
+    p.productName.toLowerCase().includes(q) ||
+    p.vendor.toLowerCase().includes(q) ||
+    p.platforms.some(pl => pl.toLowerCase().includes(q))
+  );
+}
+
+export function getDetectionStrategiesForProduct(productId: string): DetectionStrategy[] {
+  const product = ctidProducts.find(p => p.id === productId);
+  if (!product) return [];
+  
+  return detectionStrategies.filter(ds =>
+    ds.dataComponentRefs.some(dcId => product.dataComponentIds.includes(dcId))
+  );
+}
+
+export function getDataComponentsForProduct(productId: string): DataComponentRef[] {
+  const product = ctidProducts.find(p => p.id === productId);
+  if (!product) return [];
+  
+  return product.dataComponentIds
+    .map(id => dataComponents[id])
+    .filter(Boolean);
+}
