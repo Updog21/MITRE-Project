@@ -1,12 +1,10 @@
 import { useState, useMemo } from 'react';
-import { Asset, getDetectionStrategiesForProduct, getDataComponentsForProduct, DetectionStrategy, DataComponentRef, dataComponents, techniques } from '@/lib/mitreData';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Asset, getDetectionStrategiesForProduct, dataComponents, techniques } from '@/lib/mitreData';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Separator } from '@/components/ui/separator';
 import { 
   Server,
-  Target,
   Database,
   ChevronDown,
   ChevronRight,
@@ -17,7 +15,8 @@ import {
   Terminal,
   Monitor,
   Zap,
-  CheckCircle2
+  CheckCircle2,
+  ArrowRight
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -135,338 +134,292 @@ export function ProductView({ product, onBack }: ProductViewProps) {
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-8">
+    <div className="max-w-4xl mx-auto">
       <button 
         onClick={onBack}
-        className="text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+        className="text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"
         data-testid="button-back"
       >
         ← Back to search
       </button>
 
-      <Card className="bg-card/50 backdrop-blur border-border">
-        <CardContent className="p-6">
-          <div className="flex items-start gap-5">
-            <div className="w-16 h-16 rounded-xl bg-green-500/20 flex items-center justify-center flex-shrink-0">
-              <Server className="w-8 h-8 text-green-400" />
-            </div>
-            <div className="flex-1">
-              <span className="text-sm text-muted-foreground">{product.vendor}</span>
-              <h1 className="text-2xl font-bold text-foreground mt-1">{product.productName}</h1>
-              <p className="text-muted-foreground mt-2">{product.description}</p>
-              <div className="flex items-center gap-3 mt-4">
-                {product.deployment && (
-                  <Badge variant="secondary">{product.deployment}</Badge>
-                )}
-                <Badge variant="outline" className="flex items-center gap-1">
-                  {getPlatformIcon(platform)}
-                  {platform}
-                </Badge>
-                <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
-                  CTID Verified
-                </Badge>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <header className="mb-8">
+        <div className="flex items-center gap-3 mb-2">
+          <Badge variant="outline" className="text-xs">
+            {product.vendor}
+          </Badge>
+          <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 text-xs">
+            {getPlatformIcon(platform)}
+            <span className="ml-1">{platform}</span>
+          </Badge>
+        </div>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground">{product.productName}</h1>
+        <p className="text-muted-foreground mt-2 text-lg leading-relaxed">{product.description}</p>
+      </header>
 
-      <div className="flex items-center gap-4 text-sm text-muted-foreground">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-green-500/20 flex items-center justify-center">
-            <Server className="w-4 h-4 text-green-400" />
-          </div>
-          <span>Product</span>
+      <div className="flex items-center gap-2 mb-10 py-3 px-4 rounded-lg bg-muted/30 border border-border/50">
+        <div className="flex items-center gap-1.5 text-sm">
+          <Server className="w-4 h-4 text-emerald-400" />
+          <span className="text-foreground font-medium">Product</span>
         </div>
-        <ChevronRight className="w-4 h-4" />
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-blue-500/20 flex items-center justify-center">
-            <Database className="w-4 h-4 text-blue-400" />
-          </div>
-          <span>Data Components</span>
+        <ArrowRight className="w-4 h-4 text-muted-foreground/50" />
+        <div className="flex items-center gap-1.5 text-sm">
+          <Database className="w-4 h-4 text-blue-400" />
+          <span className="text-muted-foreground">{filteredDataComponents.length} Data Components</span>
         </div>
-        <ChevronRight className="w-4 h-4" />
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center">
-            <Layers className="w-4 h-4 text-amber-400" />
-          </div>
-          <span>Analytics</span>
+        <ArrowRight className="w-4 h-4 text-muted-foreground/50" />
+        <div className="flex items-center gap-1.5 text-sm">
+          <Layers className="w-4 h-4 text-amber-400" />
+          <span className="text-muted-foreground">{filteredAnalytics.length} Analytics</span>
         </div>
-        <ChevronRight className="w-4 h-4" />
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
-            <Shield className="w-4 h-4 text-primary" />
-          </div>
-          <span>Coverage</span>
+        <ArrowRight className="w-4 h-4 text-muted-foreground/50" />
+        <div className="flex items-center gap-1.5 text-sm">
+          <Shield className="w-4 h-4 text-violet-400" />
+          <span className="text-muted-foreground">{coveredTechniques.length} Techniques</span>
         </div>
       </div>
 
-      <section className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-            <Database className="w-5 h-5 text-blue-400" />
-            Data Components
-            <Badge variant="secondary" className="ml-2">{filteredDataComponents.length}</Badge>
-          </h2>
-          <span className="text-sm text-muted-foreground">
-            Log sources provided by {product.productName}
-          </span>
+      <section className="mb-10">
+        <div className="flex items-center gap-2 mb-4">
+          <Database className="w-5 h-5 text-blue-400" />
+          <h2 className="text-xl font-semibold text-foreground">Data Components</h2>
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-2">
           {filteredDataComponents.map((dc) => {
             const isExpanded = expandedDataComponents.has(dc.id);
             
             return (
-              <Card 
+              <div 
                 key={dc.id} 
                 className={cn(
-                  "bg-card/30 border-border overflow-hidden transition-all",
-                  isExpanded && "border-blue-500/40"
+                  "rounded-lg border transition-all",
+                  isExpanded ? "border-blue-500/30 bg-blue-500/5" : "border-border/50 bg-card/30 hover:border-border"
                 )}
               >
                 <button
                   onClick={() => toggleDataComponent(dc.id)}
-                  className="w-full p-4 text-left hover:bg-muted/20 transition-colors"
+                  className="w-full px-4 py-3 text-left flex items-center gap-4"
+                  data-testid={`button-expand-dc-${dc.id}`}
                 >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-mono text-sm text-blue-400">{dc.id}</span>
-                        <a 
-                          href={`https://attack.mitre.org/datacomponents/${dc.id}/`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-muted-foreground hover:text-blue-400"
-                          onClick={e => e.stopPropagation()}
-                        >
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
-                      </div>
-                      <h3 className="font-medium text-foreground">{dc.name}</h3>
-                      <p className="text-sm text-muted-foreground mt-1">{dc.description}</p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs text-blue-400">{dc.id}</span>
+                      <span className="text-foreground font-medium">{dc.name}</span>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <div className="text-right">
-                        <div className="font-mono text-sm text-foreground">{dc.eventSource}</div>
-                        {dc.eventId && (
-                          <Badge className="bg-orange-500/20 text-orange-400 border-orange-500/30 font-mono text-xs mt-1">
-                            Event {dc.eventId}
-                          </Badge>
-                        )}
-                      </div>
-                      {isExpanded ? (
-                        <ChevronDown className="w-5 h-5 text-muted-foreground" />
-                      ) : (
-                        <ChevronRight className="w-5 h-5 text-muted-foreground" />
-                      )}
-                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <code className="text-xs text-muted-foreground bg-muted/50 px-2 py-1 rounded">{dc.eventSource}</code>
+                    {dc.eventId && (
+                      <Badge variant="secondary" className="font-mono text-xs">{dc.eventId}</Badge>
+                    )}
+                    {isExpanded ? (
+                      <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                    ) : (
+                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                    )}
                   </div>
                 </button>
 
                 {isExpanded && (
-                  <div className="px-4 pb-4 space-y-4 border-t border-border pt-4 bg-muted/10">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="px-4 pb-4 pt-2 border-t border-border/30">
+                    <p className="text-sm text-muted-foreground mb-4">{dc.description}</p>
+                    
+                    <div className="grid grid-cols-3 gap-4 mb-4">
                       <div>
-                        <span className="text-xs text-muted-foreground uppercase tracking-wide">Event Source</span>
-                        <div className="font-mono text-sm text-foreground mt-1">{dc.eventSource}</div>
+                        <div className="text-[11px] uppercase tracking-wider text-muted-foreground/70 mb-1">Source</div>
+                        <div className="font-mono text-sm text-foreground">{dc.eventSource}</div>
                       </div>
                       {dc.eventId && (
                         <div>
-                          <span className="text-xs text-muted-foreground uppercase tracking-wide">Event ID</span>
-                          <div className="mt-1">
-                            <Badge className="bg-orange-500/20 text-orange-400 border-orange-500/30 font-mono">
-                              {dc.eventId}
-                            </Badge>
-                          </div>
+                          <div className="text-[11px] uppercase tracking-wider text-muted-foreground/70 mb-1">Event ID</div>
+                          <div className="font-mono text-sm text-orange-400">{dc.eventId}</div>
                         </div>
                       )}
                       {dc.logChannel && (
-                        <div>
-                          <span className="text-xs text-muted-foreground uppercase tracking-wide">Log Channel</span>
-                          <div className="font-mono text-xs text-cyan-400 mt-1 break-all">{dc.logChannel}</div>
+                        <div className="col-span-2">
+                          <div className="text-[11px] uppercase tracking-wider text-muted-foreground/70 mb-1">Log Channel</div>
+                          <div className="font-mono text-xs text-cyan-400 break-all">{dc.logChannel}</div>
                         </div>
                       )}
                     </div>
-                    
-                    {dc.notes && (
-                      <p className="text-sm text-muted-foreground italic">{dc.notes}</p>
-                    )}
 
                     <div>
-                      <span className="text-xs text-muted-foreground uppercase tracking-wide">Mutable Elements (Required Fields)</span>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                      <div className="text-[11px] uppercase tracking-wider text-muted-foreground/70 mb-2">Required Fields</div>
+                      <div className="flex flex-wrap gap-1.5">
                         {dc.mutableElements.map(me => (
-                          <div key={me.name} className="p-2 rounded bg-background border border-border">
-                            <div className="flex items-center gap-2">
-                              <code className="text-xs font-mono text-primary">{me.name}</code>
-                              {me.fieldPath && (
-                                <code className="text-[10px] font-mono text-muted-foreground">{me.fieldPath}</code>
-                              )}
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-1">{me.description}</p>
-                          </div>
+                          <span 
+                            key={me.name} 
+                            className="text-xs font-mono px-2 py-1 rounded bg-muted/50 text-foreground border border-border/50"
+                            title={me.description}
+                          >
+                            {me.name}
+                          </span>
                         ))}
                       </div>
                     </div>
+                    
+                    <a 
+                      href={`https://attack.mitre.org/datasources/`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 mt-4"
+                    >
+                      View in MITRE ATT&CK <ExternalLink className="w-3 h-3" />
+                    </a>
                   </div>
                 )}
-              </Card>
+              </div>
             );
           })}
         </div>
       </section>
 
-      <Separator className="my-8" />
-
-      <section className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-            <Layers className="w-5 h-5 text-amber-400" />
-            Analytics
-            <Badge variant="secondary" className="ml-2">{filteredAnalytics.length}</Badge>
-          </h2>
-          <span className="text-sm text-muted-foreground">
-            Detection rules enabled by these data components
-          </span>
+      <section className="mb-10">
+        <div className="flex items-center gap-2 mb-4">
+          <Layers className="w-5 h-5 text-amber-400" />
+          <h2 className="text-xl font-semibold text-foreground">Detection Analytics</h2>
         </div>
 
         {filteredAnalytics.length > 0 ? (
-          <div className="space-y-3">
-            {filteredAnalytics.map((analytic, idx) => {
+          <div className="space-y-2">
+            {filteredAnalytics.map((analytic) => {
               const isExpanded = expandedAnalytics.has(analytic.id);
               const dcRefs = analytic.dataComponents
                 .map(id => filteredDataComponents.find(dc => dc.id === id))
                 .filter(Boolean);
 
               return (
-                <Card 
+                <div 
                   key={analytic.id} 
                   className={cn(
-                    "bg-card/30 border-border overflow-hidden transition-all",
-                    isExpanded && "border-amber-500/40"
+                    "rounded-lg border transition-all",
+                    isExpanded ? "border-amber-500/30 bg-amber-500/5" : "border-border/50 bg-card/30 hover:border-border"
                   )}
                 >
                   <button
                     onClick={() => toggleAnalytic(analytic.id)}
-                    className="w-full p-4 text-left hover:bg-muted/20 transition-colors"
+                    className="w-full px-4 py-3 text-left flex items-center gap-4"
+                    data-testid={`button-expand-analytic-${analytic.id}`}
                   >
-                    <div className="flex items-start gap-4">
-                      <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center flex-shrink-0">
-                        <span className="text-amber-400 font-mono text-sm font-bold">{idx + 1}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs text-amber-400">{analytic.id}</span>
+                        <span className="text-foreground font-medium">{analytic.name}</span>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-mono text-sm text-amber-400">{analytic.id}</span>
-                        </div>
-                        <h3 className="font-medium text-foreground">{analytic.name}</h3>
-                        <p className="text-sm text-muted-foreground mt-1">{analytic.description}</p>
-                        <div className="flex flex-wrap gap-1 mt-2">
-                          {analytic.techniques.map(t => (
-                            <Badge key={t} variant="destructive" className="text-xs font-mono">
-                              {t}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {analytic.techniques.slice(0, 2).map(t => (
+                        <Badge key={t} variant="destructive" className="text-xs font-mono px-1.5 py-0">
+                          {t}
+                        </Badge>
+                      ))}
+                      {analytic.techniques.length > 2 && (
+                        <span className="text-xs text-muted-foreground">+{analytic.techniques.length - 2}</span>
+                      )}
                       {isExpanded ? (
-                        <ChevronDown className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                        <ChevronDown className="w-4 h-4 text-muted-foreground" />
                       ) : (
-                        <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                        <ChevronRight className="w-4 h-4 text-muted-foreground" />
                       )}
                     </div>
                   </button>
 
                   {isExpanded && (
-                    <div className="px-4 pb-4 space-y-4 border-t border-border pt-4 bg-muted/10">
+                    <div className="px-4 pb-4 pt-2 border-t border-border/30 space-y-4">
+                      <p className="text-sm text-muted-foreground">{analytic.description}</p>
+
                       {analytic.pseudocode && (
                         <div>
-                          <div className="flex items-center gap-2 mb-2">
-                            <Code className="w-4 h-4 text-green-400" />
-                            <span className="text-sm font-medium text-foreground">Detection Logic</span>
+                          <div className="flex items-center gap-1.5 mb-2">
+                            <Code className="w-3.5 h-3.5 text-emerald-400" />
+                            <span className="text-[11px] uppercase tracking-wider text-muted-foreground/70">Detection Logic</span>
                           </div>
-                          <pre className="p-4 rounded-lg bg-background border border-border text-sm font-mono text-muted-foreground overflow-x-auto whitespace-pre-wrap">
+                          <pre className="p-3 rounded-md bg-background/80 border border-border/50 text-xs font-mono text-muted-foreground overflow-x-auto leading-relaxed">
                             {analytic.pseudocode}
                           </pre>
                         </div>
                       )}
 
-                      <div>
-                        <div className="flex items-center gap-2 mb-2">
-                          <Database className="w-4 h-4 text-blue-400" />
-                          <span className="text-sm font-medium text-foreground">Required Data Components</span>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
+                      <div className="flex items-center gap-4 text-sm">
+                        <div className="flex items-center gap-1.5">
+                          <Database className="w-3.5 h-3.5 text-blue-400" />
+                          <span className="text-muted-foreground">Requires:</span>
                           {dcRefs.map(dc => dc && (
-                            <Badge key={dc.id} variant="secondary" className="font-mono text-xs">
-                              {dc.id}: {dc.name}
+                            <Badge key={dc.id} variant="outline" className="font-mono text-xs">
+                              {dc.id}
                             </Badge>
                           ))}
                         </div>
                       </div>
                     </div>
                   )}
-                </Card>
+                </div>
               );
             })}
           </div>
         ) : (
-          <Card className="bg-card/30 border-border border-dashed">
-            <CardContent className="py-8 text-center">
-              <Layers className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-30" />
-              <p className="text-muted-foreground">
-                No analytics currently mapped for {platform} with these data components.
-              </p>
-            </CardContent>
-          </Card>
+          <div className="py-8 text-center text-muted-foreground border border-dashed border-border/50 rounded-lg">
+            No analytics mapped for {platform} with these data components.
+          </div>
         )}
       </section>
 
-      <Separator className="my-8" />
+      <section>
+        <div className="flex items-center gap-2 mb-4">
+          <Shield className="w-5 h-5 text-violet-400" />
+          <h2 className="text-xl font-semibold text-foreground">Coverage Summary</h2>
+        </div>
 
-      <section className="space-y-4">
-        <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-          <Shield className="w-5 h-5 text-primary" />
-          Coverage Value
-        </h2>
-
-        <Card className="bg-gradient-to-r from-primary/10 via-green-500/10 to-primary/10 border-primary/30">
+        <Card className="bg-gradient-to-br from-violet-500/10 via-transparent to-emerald-500/10 border-violet-500/20">
           <CardContent className="p-6">
-            <div className="flex items-start gap-6">
-              <div className="w-20 h-20 rounded-xl bg-primary/20 flex items-center justify-center flex-shrink-0">
-                <Zap className="w-10 h-10 text-primary" />
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <div className="text-sm text-muted-foreground mb-1">Detection Coverage Score</div>
+                <div className="text-4xl font-bold text-foreground">{coverageScore}%</div>
               </div>
-              <div className="flex-1">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-xl font-bold text-foreground">Security Value Summary</h3>
-                  <div className="text-3xl font-bold text-primary">{coverageScore}%</div>
-                </div>
-                
-                <Progress value={coverageScore} className="h-3 mb-4" />
-                
-                <p className="text-muted-foreground">
-                  <strong className="text-foreground">{product.productName}</strong> provides{' '}
-                  <strong className="text-blue-400">{filteredDataComponents.length} data components</strong> for {platform}, enabling{' '}
-                  <strong className="text-amber-400">{filteredAnalytics.length} detection analytics</strong> that cover{' '}
-                  <strong className="text-red-400">{coveredTechniques.length} ATT&CK techniques</strong>.
-                </p>
-
-                {coveredTechniques.length > 0 && (
-                  <div className="mt-4 pt-4 border-t border-primary/20">
-                    <span className="text-sm text-muted-foreground">Techniques Covered:</span>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {coveredTechniques.map(t => (
-                        <div key={t.id} className="flex items-center gap-2 p-2 rounded bg-background/50 border border-border">
-                          <CheckCircle2 className="w-4 h-4 text-green-400" />
-                          <span className="font-mono text-sm text-red-400">{t.id}</span>
-                          <span className="text-sm text-foreground">{t.name}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+              <div className="w-16 h-16 rounded-full bg-violet-500/20 flex items-center justify-center">
+                <Zap className="w-8 h-8 text-violet-400" />
               </div>
             </div>
+            
+            <Progress value={coverageScore} className="h-2 mb-6" />
+            
+            <div className="grid grid-cols-3 gap-4 text-center py-4 border-t border-border/30">
+              <div>
+                <div className="text-2xl font-bold text-blue-400">{filteredDataComponents.length}</div>
+                <div className="text-xs text-muted-foreground mt-1">Data Components</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-amber-400">{filteredAnalytics.length}</div>
+                <div className="text-xs text-muted-foreground mt-1">Analytics</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-red-400">{coveredTechniques.length}</div>
+                <div className="text-xs text-muted-foreground mt-1">Techniques</div>
+              </div>
+            </div>
+
+            {coveredTechniques.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-border/30">
+                <div className="text-[11px] uppercase tracking-wider text-muted-foreground/70 mb-3">Covered Techniques</div>
+                <div className="flex flex-wrap gap-2">
+                  {coveredTechniques.map(t => (
+                    <a
+                      key={t.id}
+                      href={`https://attack.mitre.org/techniques/${t.id.replace('.', '/')}/`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-background/50 border border-border/50 hover:border-emerald-500/30 transition-colors group"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      <span className="font-mono text-xs text-red-400">{t.id}</span>
+                      <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">{t.name}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       </section>
