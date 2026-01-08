@@ -19,11 +19,8 @@ interface SigmaRule {
 export class SigmaAdapter implements ResourceAdapter {
   name: 'sigma' = 'sigma';
 
-  isApplicable(productType: string, platforms: string[]): boolean {
-    const networkProducts = ['network', 'web', 'siem'];
-    const saasIndicators = ['Okta', 'Azure AD', 'Google Workspace', 'Office 365'];
-    return networkProducts.includes(productType) || 
-           platforms.some(p => saasIndicators.includes(p));
+  isApplicable(_productType: string, _platforms: string[]): boolean {
+    return true;
   }
 
   async fetchMappings(productName: string, vendor: string): Promise<NormalizedMapping | null> {
@@ -185,7 +182,7 @@ export class SigmaAdapter implements ResourceAdapter {
       confidence: Math.min(100, rules.length * 10),
       detectionStrategies: Array.from(techniqueIds).map(t => `DS-${t}`),
       analytics,
-      dataComponents: [...new Map(dataComponents.map(dc => [dc.id, dc])).values()],
+      dataComponents: Array.from(new Map(dataComponents.map(dc => [dc.id, dc])).values()),
       rawData: rules,
     };
   }

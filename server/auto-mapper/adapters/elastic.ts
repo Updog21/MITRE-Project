@@ -21,10 +21,8 @@ interface ElasticRule {
 export class ElasticAdapter implements ResourceAdapter {
   name: 'elastic' = 'elastic';
 
-  isApplicable(productType: string, platforms: string[]): boolean {
-    const endpointPlatforms = ['Windows', 'Linux', 'macOS'];
-    return productType === 'endpoint' || 
-           platforms.some(p => endpointPlatforms.includes(p));
+  isApplicable(_productType: string, _platforms: string[]): boolean {
+    return true;
   }
 
   async fetchMappings(productName: string, vendor: string): Promise<NormalizedMapping | null> {

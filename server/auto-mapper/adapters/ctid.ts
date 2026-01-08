@@ -14,11 +14,8 @@ interface CTIDMapping {
 export class CTIDAdapter implements ResourceAdapter {
   name: 'ctid' = 'ctid';
 
-  isApplicable(productType: string, platforms: string[]): boolean {
-    const cloudPlatforms = ['Azure', 'AWS', 'GCP', 'Azure AD', 'Office 365', 'Google Workspace'];
-    return productType === 'cloud' || 
-           productType === 'identity' ||
-           platforms.some(p => cloudPlatforms.includes(p));
+  isApplicable(_productType: string, _platforms: string[]): boolean {
+    return true;
   }
 
   async fetchMappings(productName: string, vendor: string): Promise<NormalizedMapping | null> {

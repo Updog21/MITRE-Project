@@ -32,12 +32,16 @@ The frontend follows a component-based architecture with:
 - **API Design**: RESTful endpoints under `/api/` prefix
 - **Database ORM**: Drizzle ORM with PostgreSQL
 
-The backend implements an auto-mapper system with adapters for multiple threat intelligence sources:
-- CTID (Center for Threat-Informed Defense) mappings
-- Sigma rules
-- Elastic detection rules
-- Splunk security content
-- MITRE STIX data
+The backend implements an auto-mapper system that queries ALL community resources in order and combines results:
+1. **CTID** (Center for Threat-Informed Defense) - Official vendor mappings
+2. **Splunk** - Splunk Security Content detection rules
+3. **Sigma** - SigmaHQ community detection rules
+4. **Elastic** - Elastic detection rules
+
+All adapters extract MITRE ATT&CK technique IDs, which are then enriched via the MITRE STIX v18 knowledge graph to derive:
+- Detection Strategies
+- Analytics
+- Data Components
 
 ### Data Storage
 - **Primary Database**: PostgreSQL (configured via DATABASE_URL environment variable)
