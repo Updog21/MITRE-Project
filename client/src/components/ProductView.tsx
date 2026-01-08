@@ -344,7 +344,14 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                                           {dc.name} ({dc.id})
                                         </a>
                                       </td>
-                                      <td className="px-3 py-2 font-mono text-foreground">{dc.eventSource}</td>
+                                      <td className="px-3 py-2 font-mono text-foreground">
+                                        {dc.logChannel ? `${dc.logChannel.includes('Sysmon') ? 'WinEventLog:Sysmon' : 
+                                          dc.logChannel.includes('PowerShell') ? 'WinEventLog:PowerShell' : 
+                                          dc.logChannel === 'Security' ? 'WinEventLog:Security' :
+                                          dc.logChannel.includes('/var/log/audit') ? 'auditd:SYSCALL' :
+                                          dc.logChannel.includes('/var/log/auth') ? 'pam:auth' :
+                                          dc.eventSource}` : dc.eventSource}
+                                      </td>
                                       <td className="px-3 py-2 font-mono text-foreground">{dc.eventId ? `EventCode=${dc.eventId}` : '-'}</td>
                                     </tr>
                                   ))}
