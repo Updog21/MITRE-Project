@@ -16,8 +16,12 @@ import {
   X,
   Info,
   FileText,
+  Zap,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useMappingStatus, useRunAutoMapper, RESOURCE_LABELS } from '@/hooks/useAutoMapper';
 
 interface ProductViewProps {
   product: Asset;
@@ -168,6 +172,9 @@ export function ProductView({ product, onBack }: ProductViewProps) {
   const [selectedDataComponent, setSelectedDataComponent] = useState<DataComponentRef | null>(null);
   const [selectedMitreAsset, setSelectedMitreAsset] = useState<MitreAsset | null>(null);
   
+  const { data: mappingStatus, isLoading: mappingLoading } = useMappingStatus(product.id);
+  const runAutoMapper = useRunAutoMapper();
+  
   const platform = product.platforms[0];
   
   const strategies = getDetectionStrategiesForProduct(product.id);
@@ -294,9 +301,22 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                 {getPlatformIcon(platform)}
                 <span className="ml-1">{platform}</span>
               </Badge>
-              <Badge variant="outline" className="text-xs">
-                CTID Verified
-              </Badge>
+              {mappingStatus?.status === 'matched' && mappingStatus.source && (
+                <Badge 
+                  className={cn(
+                    "text-xs text-white",
+                    RESOURCE_LABELS[mappingStatus.source]?.color || 'bg-gray-500'
+                  )}
+                >
+                  {RESOURCE_LABELS[mappingStatus.source]?.label || mappingStatus.source}
+                </Badge>
+              )}
+              {mappingStatus?.status === 'ai_pending' && (
+                <Badge variant="outline" className="text-xs text-amber-600 border-amber-600">
+                  <AlertCircle className="w-3 h-3 mr-1" />
+                  AI Mapping Pending
+                </Badge>
+              )}
               {product.deployment && (
                 <Badge variant="outline" className="text-xs">
                   {product.deployment}
@@ -374,6 +394,104 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                   })}
                 </div>
               </div>
+            </div>
+
+            {/* Auto-Mapper Section */}
+            <div className="mt-6 p-4 rounded-lg border border-border bg-card">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-primary" />
+                  Tiered Resource Mapping
+                </h3>
+                {!mappingStatus && !mappingLoading && (
+                  <button
+                    onClick={() => runAutoMapper.mutate(product.id)}
+                    disabled={runAutoMapper.isPending}
+                    className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2"
+                    data-testid="button-run-auto-mapper"
+                  >
+                    {runAutoMapper.isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Mapping...
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="w-4 h-4" />
+                        Run Auto-Mapper
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+              
+              {mappingLoading && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Loading mapping status...
+                </div>
+              )}
+              
+              {mappingStatus?.status === 'matched' && mappingStatus.mapping && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-4 text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">Source:</span>
+                      <Badge className={cn("text-white", RESOURCE_LABELS[mappingStatus.source || '']?.color || 'bg-gray-500')}>
+                        {RESOURCE_LABELS[mappingStatus.source || '']?.label || mappingStatus.source}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">Confidence:</span>
+                      <span className="font-semibold text-foreground">{mappingStatus.confidence}%</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">Analytics:</span>
+                      <span className="font-semibold text-foreground">{mappingStatus.mapping.analytics.length}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">Techniques:</span>
+                      <span className="font-semibold text-foreground">{mappingStatus.mapping.detectionStrategies.length}</span>
+                    </div>
+                  </div>
+                  
+                  {mappingStatus.mapping.analytics.length > 0 && (
+                    <div className="mt-3">
+                      <div className="text-xs font-medium text-muted-foreground mb-2">Top Analytics from {RESOURCE_LABELS[mappingStatus.source || '']?.label}:</div>
+                      <div className="space-y-1 max-h-32 overflow-y-auto">
+                        {mappingStatus.mapping.analytics.slice(0, 5).map(analytic => (
+                          <div key={analytic.id} className="text-xs p-2 bg-muted/50 rounded border border-border">
+                            <div className="font-medium text-foreground">{analytic.name}</div>
+                            {analytic.logSources && analytic.logSources.length > 0 && (
+                              <div className="text-muted-foreground mt-1">
+                                Log: {analytic.logSources.join(', ')}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                        {mappingStatus.mapping.analytics.length > 5 && (
+                          <div className="text-xs text-muted-foreground">
+                            +{mappingStatus.mapping.analytics.length - 5} more analytics
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {mappingStatus?.status === 'ai_pending' && (
+                <div className="flex items-center gap-2 text-sm text-amber-600">
+                  <AlertCircle className="w-4 h-4" />
+                  No automated mappings found. This product requires AI-assisted mapping.
+                </div>
+              )}
+              
+              {!mappingStatus && !mappingLoading && (
+                <p className="text-sm text-muted-foreground">
+                  Query CTID, Sigma, Elastic, Splunk, and MITRE STIX resources to find detection mappings for this product.
+                </p>
+              )}
             </div>
           </header>
 
