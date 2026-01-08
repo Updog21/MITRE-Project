@@ -322,24 +322,26 @@ export async function registerRoutes(
   // Hybrid Selector endpoints
   
   // Get hybrid selector options (master list)
+  // Note: Enterprise ATT&CK uses platforms (x_mitre_platforms), not assets
+  // Asset targeting relationships are primarily in ICS ATT&CK
   app.get("/api/hybrid-selector/options", async (req, res) => {
     const options = [
-      { label: "Firewall / Security Appliance", type: "asset", value: "Firewall" },
-      { label: "Router / Gateway", type: "asset", value: "Router" },
-      { label: "Network Switch", type: "asset", value: "Switch" },
-      { label: "Server (Physical/Virtual)", type: "asset", value: "Server" },
-      { label: "Domain Controller / Identity Provider", type: "platform", value: "Identity Provider" },
-      { label: "Cloud Environment (AWS/Azure/GCP)", type: "platform", value: "IaaS" },
-      { label: "SaaS Application (M365/Salesforce)", type: "platform", value: "SaaS" },
       { label: "Windows Endpoint", type: "platform", value: "Windows" },
       { label: "Linux Server/Endpoint", type: "platform", value: "Linux" },
       { label: "macOS Endpoint", type: "platform", value: "macOS" },
+      { label: "Identity Provider (Azure AD/Okta)", type: "platform", value: "Identity Provider" },
+      { label: "Cloud Infrastructure (AWS/Azure/GCP)", type: "platform", value: "IaaS" },
+      { label: "SaaS Application (M365/Salesforce)", type: "platform", value: "SaaS" },
       { label: "Container / Kubernetes", type: "platform", value: "Containers" },
+      { label: "Network Devices (Router/Switch/Firewall)", type: "platform", value: "Network" },
+      { label: "Office Suite (M365/Google Workspace)", type: "platform", value: "Office 365" },
+      { label: "ESXi / VMware", type: "platform", value: "ESXi" },
     ];
     res.json(options);
   });
 
   // Get techniques by hybrid selector
+  // Note: Only platform types are supported (Enterprise ATT&CK has no asset objects)
   app.post("/api/mitre-stix/techniques/by-selector", async (req, res) => {
     try {
       await mitreKnowledgeGraph.ensureInitialized();
@@ -349,8 +351,11 @@ export async function registerRoutes(
         return res.status(400).json({ error: "selectorType and selectorValue are required" });
       }
       
-      if (selectorType !== 'asset' && selectorType !== 'platform') {
-        return res.status(400).json({ error: "selectorType must be 'asset' or 'platform'" });
+      // Only platform type is supported in Enterprise ATT&CK
+      if (selectorType !== 'platform') {
+        return res.status(400).json({ 
+          error: "Only 'platform' selectorType is supported (Enterprise ATT&CK does not contain asset objects)" 
+        });
       }
       
       const techniqueIds = mitreKnowledgeGraph.getTechniquesByHybridSelector(selectorType, selectorValue);
@@ -361,14 +366,26 @@ export async function registerRoutes(
     }
   });
 
-  // Update product hybrid selector
+  // Update product hybrid selector (only platform type is supported)
   app.patch("/api/products/:productId/hybrid-selector", async (req, res) => {
     try {
       const { productId } = req.params;
-      const { hybridSelectorType, hybridSelectorValue } = req.body;
+      let { hybridSelectorType, hybridSelectorValue } = req.body;
       
       if (!hybridSelectorType || !hybridSelectorValue) {
         return res.status(400).json({ error: "hybridSelectorType and hybridSelectorValue are required" });
+      }
+      
+      // Normalize legacy asset types - reject with error
+      if (hybridSelectorType === 'asset') {
+        return res.status(400).json({ 
+          error: "Asset type is no longer supported. Please use a platform type instead." 
+        });
+      }
+      
+      // Validate it's a platform type
+      if (hybridSelectorType !== 'platform') {
+        return res.status(400).json({ error: "Only 'platform' type is supported" });
       }
       
       const updated = await storage.updateProductHybridSelector(productId, hybridSelectorType, hybridSelectorValue);

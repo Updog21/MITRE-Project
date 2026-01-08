@@ -106,7 +106,33 @@ export function useRunAutoMapper() {
   });
 }
 
-export function useAutoMappingWithAutoRun(productId: string, platform?: string) {
+export interface HybridSelectorTechniques {
+  techniqueIds: string[];
+  count: number;
+  selectorType: 'platform';
+  selectorValue: string;
+}
+
+async function fetchTechniquesBySelector(
+  selectorType: 'platform',
+  selectorValue: string
+): Promise<{ techniqueIds: string[]; count: number }> {
+  const response = await fetch('/api/mitre-stix/techniques/by-selector', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ selectorType, selectorValue }),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch techniques by selector');
+  }
+  return response.json();
+}
+
+export function useAutoMappingWithAutoRun(
+  productId: string, 
+  platform?: string,
+  hybridSelector?: { type: 'platform'; value: string } | null
+) {
   const queryClient = useQueryClient();
   
   const statusQuery = useQuery({
@@ -136,8 +162,11 @@ export function useAutoMappingWithAutoRun(productId: string, platform?: string) 
     dataComponents: StixDataComponent[];
   } | null>(null);
   const [stixLoading, setStixLoading] = useState(false);
+  
+  const [hybridTechniques, setHybridTechniques] = useState<HybridSelectorTechniques | null>(null);
+  const [hybridLoading, setHybridLoading] = useState(false);
 
-  const techniqueIds = useMemo(() => {
+  const baseTechniqueIds = useMemo(() => {
     if (!rawData?.mapping || rawData.status !== 'matched') {
       return [];
     }
@@ -152,18 +181,48 @@ export function useAutoMappingWithAutoRun(productId: string, platform?: string) 
   }, [rawData]);
 
   useEffect(() => {
-    if (techniqueIds.length === 0) {
+    if (!hybridSelector?.type || !hybridSelector?.value) {
+      setHybridTechniques(null);
+      return;
+    }
+
+    setHybridLoading(true);
+    fetchTechniquesBySelector(hybridSelector.type, hybridSelector.value)
+      .then(data => {
+        setHybridTechniques({
+          ...data,
+          selectorType: hybridSelector.type,
+          selectorValue: hybridSelector.value,
+        });
+        setHybridLoading(false);
+      })
+      .catch(err => {
+        console.error('Failed to fetch hybrid techniques:', err);
+        setHybridLoading(false);
+      });
+  }, [hybridSelector?.type, hybridSelector?.value]);
+
+  const combinedTechniqueIds = useMemo(() => {
+    const baseSet = new Set(baseTechniqueIds);
+    if (hybridTechniques?.techniqueIds) {
+      hybridTechniques.techniqueIds.forEach(id => baseSet.add(id));
+    }
+    return Array.from(baseSet);
+  }, [baseTechniqueIds, hybridTechniques]);
+
+  useEffect(() => {
+    if (combinedTechniqueIds.length === 0) {
       setStixMapping(null);
       return;
     }
 
-    const idsKey = techniqueIds.join(',');
+    const idsKey = combinedTechniqueIds.join(',');
     
     setStixLoading(true);
     fetch('/api/mitre-stix/techniques/mapping', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ techniqueIds }),
+      body: JSON.stringify({ techniqueIds: combinedTechniqueIds }),
     })
       .then(res => res.json())
       .then(data => {
@@ -174,7 +233,7 @@ export function useAutoMappingWithAutoRun(productId: string, platform?: string) 
         console.error('Failed to fetch STIX mapping:', err);
         setStixLoading(false);
       });
-  }, [techniqueIds.join(',')]);
+  }, [combinedTechniqueIds.join(',')]);
 
   const enrichedMapping = useMemo((): EnrichedCommunityMapping | null => {
     if (!rawData?.mapping || rawData.status !== 'matched') {
@@ -184,19 +243,23 @@ export function useAutoMappingWithAutoRun(productId: string, platform?: string) 
     return {
       source: rawData.source || 'unknown',
       confidence: rawData.confidence || 0,
-      techniqueIds,
+      techniqueIds: combinedTechniqueIds,
       detectionStrategies: stixMapping?.detectionStrategies || [],
       dataComponents: stixMapping?.dataComponents || [],
       communityAnalytics: rawData.mapping.analytics,
     };
-  }, [rawData, techniqueIds, stixMapping]);
+  }, [rawData, combinedTechniqueIds, stixMapping]);
 
   return {
     data: rawData,
     enrichedMapping,
-    isLoading: statusQuery.isLoading || autoRunMutation.isPending || stixLoading,
+    isLoading: statusQuery.isLoading || autoRunMutation.isPending || stixLoading || hybridLoading,
     isAutoRunning: autoRunMutation.isPending,
     isStixLoading: stixLoading,
+    isHybridLoading: hybridLoading,
+    hybridTechniques,
+    baseTechniqueIds,
+    combinedTechniqueIds,
     error: statusQuery.error || autoRunMutation.error,
     shouldAutoRun,
     triggerAutoRun: () => autoRunMutation.mutate(productId),

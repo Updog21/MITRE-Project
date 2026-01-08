@@ -685,11 +685,14 @@ export class MitreKnowledgeGraph {
   }
 
   getTechniquesByHybridSelector(selectorType: 'asset' | 'platform', selectorValue: string): string[] {
+    // Note: Enterprise ATT&CK STIX v18 does not contain x-mitre-asset objects
+    // or 'targets' relationships. Assets are only in ICS ATT&CK.
+    // For Enterprise, we only support platform-based filtering.
     if (selectorType === 'asset') {
-      return this.getTechniquesByAsset(selectorValue).map(t => t.id);
-    } else {
-      return this.getTechniquesByPlatform(selectorValue).map(t => t.id);
+      console.warn(`Asset-based filtering not supported in Enterprise ATT&CK (asset: ${selectorValue})`);
+      return [];
     }
+    return this.getTechniquesByPlatform(selectorValue).map(t => t.id);
   }
 }
 
