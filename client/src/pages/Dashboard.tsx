@@ -4,19 +4,21 @@ import {
   Shield, 
   Database, 
   Layers, 
-  ChevronRight,
   Home,
   FileText,
   Settings,
   HelpCircle,
   ExternalLink,
   BookOpen,
-  Boxes
+  Boxes,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { searchProducts, Asset, ctidProducts, detectionStrategies, dataComponents } from '@/lib/mitreData';
 import { ProductView } from '@/components/ProductView';
+import { useTheme } from '@/lib/theme';
 
 type ViewState = 'search' | 'product';
 
@@ -40,6 +42,7 @@ export default function Dashboard() {
   const [selectedProduct, setSelectedProduct] = useState<Asset | null>(null);
   const [query, setQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
+  const { theme, toggleTheme } = useTheme();
 
   const filteredProducts = query.trim() 
     ? searchProducts(query)
@@ -130,6 +133,14 @@ export default function Dashboard() {
         </nav>
 
         <div className="p-3 border-t border-border">
+          <button 
+            onClick={toggleTheme}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground rounded-md"
+            data-testid="button-theme-toggle"
+          >
+            {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+            {theme === 'light' ? 'Dark Mode' : 'Light Mode'}
+          </button>
           <button className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground rounded-md">
             <Settings className="w-4 h-4" />
             Settings
