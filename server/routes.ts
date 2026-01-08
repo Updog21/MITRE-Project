@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertProductSchema, insertDataComponentSchema, insertDetectionStrategySchema, insertAnalyticSchema, insertMitreAssetSchema } from "@shared/schema";
 import { fromZodError } from "zod-validation-error";
+import { runAutoMapper, getMappingStatus, getAllProductMappings, RESOURCE_PRIORITY } from "./auto-mapper";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -198,6 +199,53 @@ export async function registerRoutes(
       console.error("Error bulk creating MITRE assets:", error);
       res.status(500).json({ error: "Failed to create MITRE assets" });
     }
+  });
+
+  // Auto-mapper endpoints
+  
+  // Run auto-mapper for a product
+  app.post("/api/auto-mapper/run/:productId", async (req, res) => {
+    try {
+      const { productId } = req.params;
+      const result = await runAutoMapper(productId);
+      res.json(result);
+    } catch (error) {
+      console.error("Error running auto-mapper:", error);
+      res.status(500).json({ error: "Failed to run auto-mapper" });
+    }
+  });
+
+  // Get mapping status for a product
+  app.get("/api/auto-mapper/mappings/:productId", async (req, res) => {
+    try {
+      const { productId } = req.params;
+      const mapping = await getMappingStatus(productId);
+      
+      if (!mapping) {
+        return res.status(404).json({ error: "No mapping found for this product" });
+      }
+      
+      res.json(mapping);
+    } catch (error) {
+      console.error("Error fetching mapping:", error);
+      res.status(500).json({ error: "Failed to fetch mapping" });
+    }
+  });
+
+  // Get all product mappings
+  app.get("/api/auto-mapper/mappings", async (req, res) => {
+    try {
+      const mappings = await getAllProductMappings();
+      res.json(mappings);
+    } catch (error) {
+      console.error("Error fetching all mappings:", error);
+      res.status(500).json({ error: "Failed to fetch mappings" });
+    }
+  });
+
+  // Get resource priority matrix
+  app.get("/api/auto-mapper/priority", async (req, res) => {
+    res.json(RESOURCE_PRIORITY);
   });
 
   return httpServer;
