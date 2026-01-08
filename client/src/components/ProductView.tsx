@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Asset, getDetectionStrategiesForProduct, dataComponents, techniques, DetectionStrategy, AnalyticItem, DataComponentRef, mitreAssets, MitreAsset } from '@/lib/mitreData';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -22,6 +23,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAutoMappingWithAutoRun, RESOURCE_LABELS } from '@/hooks/useAutoMapper';
+import { HybridSelector } from './HybridSelector';
 
 interface ProductViewProps {
   product: Asset;
@@ -165,6 +167,12 @@ function DataComponentDetail({
   );
 }
 
+interface ProductData {
+  id: string;
+  hybridSelectorType: 'platform' | null;
+  hybridSelectorValue: string | null;
+}
+
 export function ProductView({ product, onBack }: ProductViewProps) {
   const [expandedStrategies, setExpandedStrategies] = useState<Set<string>>(new Set());
   const [expandedAnalytics, setExpandedAnalytics] = useState<Set<string>>(new Set());
@@ -173,6 +181,16 @@ export function ProductView({ product, onBack }: ProductViewProps) {
   const [selectedMitreAsset, setSelectedMitreAsset] = useState<MitreAsset | null>(null);
   
   const platform = product.platforms[0];
+  
+  const { data: productData, refetch: refetchProduct } = useQuery<ProductData>({
+    queryKey: ['product', product.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/products/${product.id}`);
+      if (!res.ok) throw new Error('Failed to fetch product');
+      return res.json();
+    },
+    staleTime: 30 * 1000,
+  });
   
   const autoMapping = useAutoMappingWithAutoRun(product.id, platform);
   
@@ -418,6 +436,19 @@ export function ProductView({ product, onBack }: ProductViewProps) {
             </div>
 
           </header>
+
+          <section className="mb-10" id="hybrid-selector">
+            <HybridSelector
+              productId={product.id}
+              currentType={productData?.hybridSelectorType || null}
+              currentValue={productData?.hybridSelectorValue || null}
+              onRerun={() => {
+                refetchProduct();
+                autoMapping.triggerAutoRun();
+              }}
+              isLoading={autoMapping.isAutoRunning}
+            />
+          </section>
 
           <section className="mb-10" id="coverage">
             <h2 className="text-xl font-semibold text-foreground mb-4">Coverage Summary</h2>
