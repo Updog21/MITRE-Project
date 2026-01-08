@@ -119,7 +119,16 @@ export function useAutoMappingWithAutoRun(productId: string, platform?: string) 
       return null;
     }
     
-    const techniqueIds = rawData.mapping.detectionStrategies;
+    // API returns detection strategy IDs like "DS-T1078.004" - extract technique IDs
+    const rawStrategies = rawData.mapping.detectionStrategies || [];
+    const techniqueIds = rawStrategies.map((id: string) => {
+      // Convert "DS-T1078.004" to "T1078.004"
+      if (id.startsWith('DS-')) {
+        return id.substring(3);
+      }
+      return id;
+    });
+    
     const detectionStrategies = getDetectionStrategiesByTechniques(techniqueIds, platform);
     const dataComponents = getDataComponentsFromStrategies(detectionStrategies);
     
