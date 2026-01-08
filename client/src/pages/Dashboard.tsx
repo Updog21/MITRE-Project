@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   Search, 
   Shield, 
@@ -12,13 +12,15 @@ import {
   BookOpen,
   Boxes,
   Sun,
-  Moon
+  Moon,
+  Loader2
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { searchProducts, Asset, ctidProducts, detectionStrategies, dataComponents } from '@/lib/mitreData';
 import { ProductView } from '@/components/ProductView';
 import { useTheme } from '@/lib/theme';
+import { useSearchProducts, type Product } from '@/hooks/useProducts';
 
 type ViewState = 'search' | 'product';
 
@@ -37,15 +39,40 @@ const sidebarNav = [
   { icon: BookOpen, label: 'Documentation' },
 ];
 
+function convertProductToAsset(product: Product): Asset {
+  return {
+    id: product.productId,
+    vendor: product.vendor,
+    productName: product.productName,
+    deployment: product.deployment || undefined,
+    description: product.description,
+    platforms: product.platforms,
+    dataComponentIds: product.dataComponentIds,
+    mitreAssetIds: product.mitreAssetIds || undefined,
+    source: product.source as 'ctid' | 'custom' | 'ai-pending',
+  };
+}
+
 export default function Dashboard() {
   const [view, setView] = useState<ViewState>('search');
   const [selectedProduct, setSelectedProduct] = useState<Asset | null>(null);
   const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
   const { theme, toggleTheme } = useTheme();
 
+  // Debounce search query
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQuery(query);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  const { data: apiProducts, isLoading } = useSearchProducts(debouncedQuery);
+
   const filteredProducts = query.trim() 
-    ? searchProducts(query)
+    ? (apiProducts || []).map(convertProductToAsset)
     : ctidProducts.filter(p => {
         if (activeCategory === 'all') return true;
         if (activeCategory === 'windows') return p.platforms.includes('Windows');
@@ -194,35 +221,42 @@ export default function Dashboard() {
               ))}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {filteredProducts.map((product) => (
-                <button
-                  key={product.id}
-                  onClick={() => handleSelectProduct(product)}
-                  className="group p-5 bg-card rounded-lg border border-border hover:border-primary/50 hover:shadow-md transition-all text-left"
-                  data-testid={`card-product-${product.id}`}
-                >
-                  <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center mb-4">
-                    <Database className="w-6 h-6 text-muted-foreground group-hover:text-primary transition-colors" />
-                  </div>
-                  <h3 className="font-medium text-foreground group-hover:text-primary transition-colors mb-1">
-                    {product.productName}
-                  </h3>
-                  <p className="text-sm text-muted-foreground mb-3">
-                    {product.vendor}
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {product.platforms.map(p => (
-                      <Badge key={p} variant="secondary" className="text-xs font-normal">
-                        {p}
-                      </Badge>
-                    ))}
-                  </div>
-                </button>
-              ))}
-            </div>
+            {isLoading && query.trim() ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                <span className="ml-3 text-muted-foreground">Searching products...</span>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {filteredProducts.map((product) => (
+                  <button
+                    key={product.id}
+                    onClick={() => handleSelectProduct(product)}
+                    className="group p-5 bg-card rounded-lg border border-border hover:border-primary/50 hover:shadow-md transition-all text-left"
+                    data-testid={`card-product-${product.id}`}
+                  >
+                    <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center mb-4">
+                      <Database className="w-6 h-6 text-muted-foreground group-hover:text-primary transition-colors" />
+                    </div>
+                    <h3 className="font-medium text-foreground group-hover:text-primary transition-colors mb-1">
+                      {product.productName}
+                    </h3>
+                    <p className="text-sm text-muted-foreground mb-3">
+                      {product.vendor}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {product.platforms.map(p => (
+                        <Badge key={p} variant="secondary" className="text-xs font-normal">
+                          {p}
+                        </Badge>
+                      ))}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
 
-            {filteredProducts.length === 0 && (
+            {filteredProducts.length === 0 && !isLoading && (
               <div className="text-center py-16">
                 <Database className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
                 <h3 className="text-lg font-medium text-foreground mb-2">No products found</h3>
