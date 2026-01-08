@@ -82,7 +82,7 @@ export class PostgresStorage implements IStorage {
       or(
         sql`LOWER(${products.productName}) LIKE ${searchTerm}`,
         sql`LOWER(${products.vendor}) LIKE ${searchTerm}`,
-        sql`LOWER(${products.description}) LIKE ${searchTerm}`
+        sql`LOWER(array_to_string(${products.platforms}, ' ')) LIKE ${searchTerm}`
       )
     );
   }
