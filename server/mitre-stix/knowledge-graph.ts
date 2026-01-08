@@ -2,46 +2,6 @@ import { db } from '../db';
 import { mitreAssets, detectionStrategies, analytics, dataComponents as dataComponentsTable } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 
-const PLATFORM_MAPPINGS: Record<string, string[]> = {
-  'azure ad': ['Identity Provider', 'SaaS'],
-  'azure entra id': ['Identity Provider', 'SaaS'],
-  'entra id': ['Identity Provider', 'SaaS'],
-  'azure active directory': ['Identity Provider', 'SaaS'],
-  'office 365': ['SaaS', 'Office Suite'],
-  'o365': ['SaaS', 'Office Suite'],
-  'microsoft 365': ['SaaS', 'Office Suite'],
-  'm365': ['SaaS', 'Office Suite'],
-  'aws': ['IaaS', 'SaaS'],
-  'amazon web services': ['IaaS', 'SaaS'],
-  'gcp': ['IaaS', 'SaaS'],
-  'google cloud': ['IaaS', 'SaaS'],
-  'azure': ['IaaS', 'SaaS'],
-  'okta': ['Identity Provider', 'SaaS'],
-  'google workspace': ['SaaS', 'Office Suite'],
-  'salesforce': ['SaaS'],
-  'kubernetes': ['Containers'],
-  'k8s': ['Containers'],
-  'docker': ['Containers'],
-  'vmware': ['ESXi'],
-  'esxi': ['ESXi'],
-  'cisco': ['Network Devices'],
-  'palo alto': ['Network Devices'],
-  'fortinet': ['Network Devices'],
-};
-
-function normalizeProductPlatform(productPlatform: string): string[] {
-  const lower = productPlatform.toLowerCase().trim();
-  if (PLATFORM_MAPPINGS[lower]) {
-    return PLATFORM_MAPPINGS[lower];
-  }
-  for (const [key, values] of Object.entries(PLATFORM_MAPPINGS)) {
-    if (lower.includes(key) || key.includes(lower)) {
-      return values;
-    }
-  }
-  return [productPlatform];
-}
-
 interface StixObject {
   id: string;
   type: string;
@@ -421,7 +381,7 @@ export class MitreKnowledgeGraph {
     return this.techniqueToAssets.get(normalized) || [];
   }
 
-  getFullMappingForTechniques(techniqueIds: string[], platform?: string): {
+  getFullMappingForTechniques(techniqueIds: string[]): {
     detectionStrategies: Array<{
       id: string;
       name: string;
@@ -487,19 +447,6 @@ export class MitreKnowledgeGraph {
         for (const analyticStixId of analyticStixIds) {
           const analytic = this.analyticMap.get(analyticStixId);
           if (!analytic) continue;
-          
-          if (platform && analytic.platforms.length > 0) {
-            const normalizedPlatforms = normalizeProductPlatform(platform);
-            const hasMatchingPlatform = analytic.platforms.some(analyticPlatform => {
-              const analyticPlatformLower = analyticPlatform.toLowerCase();
-              return normalizedPlatforms.some(np => 
-                np.toLowerCase() === analyticPlatformLower ||
-                analyticPlatformLower.includes(np.toLowerCase()) ||
-                np.toLowerCase().includes(analyticPlatformLower)
-              );
-            });
-            if (!hasMatchingPlatform) continue;
-          }
           
           const dcIds: string[] = [];
           for (const dcRef of analytic.dataComponentRefs) {

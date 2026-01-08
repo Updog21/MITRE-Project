@@ -292,13 +292,13 @@ export async function registerRoutes(
   app.post("/api/mitre-stix/techniques/mapping", async (req, res) => {
     try {
       await mitreKnowledgeGraph.ensureInitialized();
-      const { techniqueIds, platform } = req.body;
+      const { techniqueIds } = req.body;
       
       if (!Array.isArray(techniqueIds)) {
         return res.status(400).json({ error: "techniqueIds must be an array" });
       }
       
-      const mapping = mitreKnowledgeGraph.getFullMappingForTechniques(techniqueIds, platform);
+      const mapping = mitreKnowledgeGraph.getFullMappingForTechniques(techniqueIds);
       res.json(mapping);
     } catch (error) {
       console.error("Error getting technique mapping:", error);

@@ -163,7 +163,7 @@ export function useAutoMappingWithAutoRun(productId: string, platform?: string) 
     fetch('/api/mitre-stix/techniques/mapping', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ techniqueIds, platform }),
+      body: JSON.stringify({ techniqueIds }),
     })
       .then(res => res.json())
       .then(data => {
@@ -174,7 +174,7 @@ export function useAutoMappingWithAutoRun(productId: string, platform?: string) 
         console.error('Failed to fetch STIX mapping:', err);
         setStixLoading(false);
       });
-  }, [techniqueIds.join(','), platform]);
+  }, [techniqueIds.join(',')]);
 
   const enrichedMapping = useMemo((): EnrichedCommunityMapping | null => {
     if (!rawData?.mapping || rawData.status !== 'matched') {
