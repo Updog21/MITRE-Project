@@ -192,7 +192,11 @@ export function ProductView({ product, onBack }: ProductViewProps) {
     staleTime: 30 * 1000,
   });
   
-  const autoMapping = useAutoMappingWithAutoRun(product.id, platform);
+  const hybridSelectorInput = productData?.hybridSelectorType && productData?.hybridSelectorValues?.length 
+    ? { type: productData.hybridSelectorType as 'platform', values: productData.hybridSelectorValues }
+    : null;
+  
+  const autoMapping = useAutoMappingWithAutoRun(product.id, platform, hybridSelectorInput);
   
   useEffect(() => {
     if (autoMapping.shouldAutoRun) {

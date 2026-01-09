@@ -110,17 +110,17 @@ export interface HybridSelectorTechniques {
   techniqueIds: string[];
   count: number;
   selectorType: 'platform';
-  selectorValue: string;
+  selectorValues: string[];
 }
 
 async function fetchTechniquesBySelector(
   selectorType: 'platform',
-  selectorValue: string
-): Promise<{ techniqueIds: string[]; count: number }> {
+  selectorValues: string[]
+): Promise<{ techniqueIds: string[]; count: number; platforms: string[] }> {
   const response = await fetch('/api/mitre-stix/techniques/by-selector', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ selectorType, selectorValue }),
+    body: JSON.stringify({ selectorType, selectorValues }),
   });
   if (!response.ok) {
     throw new Error('Failed to fetch techniques by selector');
@@ -131,7 +131,7 @@ async function fetchTechniquesBySelector(
 export function useAutoMappingWithAutoRun(
   productId: string, 
   platform?: string,
-  hybridSelector?: { type: 'platform'; value: string } | null
+  hybridSelector?: { type: 'platform'; values: string[] } | null
 ) {
   const queryClient = useQueryClient();
   
@@ -181,18 +181,18 @@ export function useAutoMappingWithAutoRun(
   }, [rawData]);
 
   useEffect(() => {
-    if (!hybridSelector?.type || !hybridSelector?.value) {
+    if (!hybridSelector?.type || !hybridSelector?.values || hybridSelector.values.length === 0) {
       setHybridTechniques(null);
       return;
     }
 
     setHybridLoading(true);
-    fetchTechniquesBySelector(hybridSelector.type, hybridSelector.value)
+    fetchTechniquesBySelector(hybridSelector.type, hybridSelector.values)
       .then(data => {
         setHybridTechniques({
           ...data,
           selectorType: hybridSelector.type,
-          selectorValue: hybridSelector.value,
+          selectorValues: hybridSelector.values,
         });
         setHybridLoading(false);
       })
@@ -200,7 +200,7 @@ export function useAutoMappingWithAutoRun(
         console.error('Failed to fetch hybrid techniques:', err);
         setHybridLoading(false);
       });
-  }, [hybridSelector?.type, hybridSelector?.value]);
+  }, [hybridSelector?.type, JSON.stringify(hybridSelector?.values)]);
 
   const combinedTechniqueIds = useMemo(() => {
     const baseSet = new Set(baseTechniqueIds);

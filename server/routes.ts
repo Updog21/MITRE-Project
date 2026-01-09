@@ -345,10 +345,10 @@ export async function registerRoutes(
   app.post("/api/mitre-stix/techniques/by-selector", async (req, res) => {
     try {
       await mitreKnowledgeGraph.ensureInitialized();
-      const { selectorType, selectorValue } = req.body;
+      const { selectorType, selectorValues } = req.body;
       
-      if (!selectorType || !selectorValue) {
-        return res.status(400).json({ error: "selectorType and selectorValue are required" });
+      if (!selectorType || !selectorValues || !Array.isArray(selectorValues) || selectorValues.length === 0) {
+        return res.status(400).json({ error: "selectorType and selectorValues (array) are required" });
       }
       
       // Only platform type is supported in Enterprise ATT&CK
@@ -358,8 +358,15 @@ export async function registerRoutes(
         });
       }
       
-      const techniqueIds = mitreKnowledgeGraph.getTechniquesByHybridSelector(selectorType, selectorValue);
-      res.json({ techniqueIds, count: techniqueIds.length });
+      // Collect technique IDs from all selected platforms
+      const allTechniqueIds = new Set<string>();
+      for (const selectorValue of selectorValues) {
+        const techniqueIds = mitreKnowledgeGraph.getTechniquesByHybridSelector(selectorType, selectorValue);
+        techniqueIds.forEach(id => allTechniqueIds.add(id));
+      }
+      
+      const techniqueIds = Array.from(allTechniqueIds);
+      res.json({ techniqueIds, count: techniqueIds.length, platforms: selectorValues });
     } catch (error) {
       console.error("Error getting techniques by selector:", error);
       res.status(500).json({ error: "Failed to get techniques" });
@@ -372,12 +379,18 @@ export async function registerRoutes(
       const { productId } = req.params;
       let { hybridSelectorType, hybridSelectorValues } = req.body;
       
-      if (!hybridSelectorType) {
-        return res.status(400).json({ error: "hybridSelectorType is required" });
+      // Allow clearing all selections (empty array with null type)
+      if (!Array.isArray(hybridSelectorValues)) {
+        return res.status(400).json({ error: "hybridSelectorValues must be an array" });
       }
       
-      if (!Array.isArray(hybridSelectorValues) || hybridSelectorValues.length === 0) {
-        return res.status(400).json({ error: "hybridSelectorValues must be a non-empty array of platform names" });
+      // If empty array, clear the hybrid selector entirely
+      if (hybridSelectorValues.length === 0) {
+        const updated = await storage.updateProductHybridSelector(productId, null as any, []);
+        if (!updated) {
+          return res.status(404).json({ error: "Product not found" });
+        }
+        return res.json(updated);
       }
       
       // Normalize legacy asset types - reject with error
@@ -387,7 +400,7 @@ export async function registerRoutes(
         });
       }
       
-      // Validate it's a platform type
+      // Validate it's a platform type for non-empty selections
       if (hybridSelectorType !== 'platform') {
         return res.status(400).json({ error: "Only 'platform' type is supported" });
       }
