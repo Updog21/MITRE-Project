@@ -326,17 +326,16 @@ export async function registerRoutes(
   // Asset targeting relationships are primarily in ICS ATT&CK
   app.get("/api/hybrid-selector/options", async (req, res) => {
     const options = [
-      { label: "Windows", type: "platform", value: "Windows" },
-      { label: "macOS", type: "platform", value: "macOS" },
-      { label: "Linux", type: "platform", value: "Linux" },
-      { label: "PRE", type: "platform", value: "PRE" },
-      { label: "Office Suite", type: "platform", value: "Office Suite" },
-      { label: "Identity Provider", type: "platform", value: "Identity Provider" },
-      { label: "SaaS", type: "platform", value: "SaaS" },
-      { label: "IaaS", type: "platform", value: "IaaS" },
-      { label: "Network Devices", type: "platform", value: "Network Devices" },
-      { label: "Containers", type: "platform", value: "Containers" },
-      { label: "ESXi", type: "platform", value: "ESXi" },
+      { label: "Windows Endpoint", type: "platform", value: "Windows" },
+      { label: "Linux Server/Endpoint", type: "platform", value: "Linux" },
+      { label: "macOS Endpoint", type: "platform", value: "macOS" },
+      { label: "Identity Provider (Azure AD/Okta)", type: "platform", value: "Identity Provider" },
+      { label: "Cloud Infrastructure (AWS/Azure/GCP)", type: "platform", value: "IaaS" },
+      { label: "SaaS Application (M365/Salesforce)", type: "platform", value: "SaaS" },
+      { label: "Container / Kubernetes", type: "platform", value: "Containers" },
+      { label: "Network Devices (Router/Switch/Firewall)", type: "platform", value: "Network" },
+      { label: "Office Suite (M365/Google Workspace)", type: "platform", value: "Office 365" },
+      { label: "ESXi / VMware", type: "platform", value: "ESXi" },
     ];
     res.json(options);
   });

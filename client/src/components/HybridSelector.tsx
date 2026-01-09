@@ -22,15 +22,14 @@ interface HybridSelectorProps {
 
 const PLATFORM_ICONS: Record<string, React.ReactNode> = {
   'Windows': <Monitor className="w-5 h-5" />,
-  'macOS': <Monitor className="w-5 h-5" />,
   'Linux': <Terminal className="w-5 h-5" />,
-  'PRE': <Shield className="w-5 h-5" />,
-  'Office Suite': <Database className="w-5 h-5" />,
-  'Identity Provider': <Shield className="w-5 h-5" />,
-  'SaaS': <Globe className="w-5 h-5" />,
+  'macOS': <Monitor className="w-5 h-5" />,
   'IaaS': <Cloud className="w-5 h-5" />,
-  'Network Devices': <Network className="w-5 h-5" />,
+  'SaaS': <Globe className="w-5 h-5" />,
   'Containers': <Box className="w-5 h-5" />,
+  'Network': <Network className="w-5 h-5" />,
+  'Identity Provider': <Shield className="w-5 h-5" />,
+  'Office 365': <Database className="w-5 h-5" />,
   'ESXi': <Server className="w-5 h-5" />,
 };
 
