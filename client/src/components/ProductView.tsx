@@ -26,7 +26,9 @@ import {
   Server,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useAutoMappingWithAutoRun, RESOURCE_LABELS } from '@/hooks/useAutoMapper';
+import { useAutoMappingWithAutoRun, RESOURCE_LABELS, ResourceType } from '@/hooks/useAutoMapper';
+import { Button } from '@/components/ui/button';
+import { Filter } from 'lucide-react';
 import { HybridSelector } from './HybridSelector';
 
 interface ProductViewProps {
@@ -240,6 +242,8 @@ export function ProductView({ product, onBack }: ProductViewProps) {
   const [activeSection, setActiveSection] = useState('overview');
   const [selectedDataComponent, setSelectedDataComponent] = useState<DataComponentRef | null>(null);
   const [selectedMitreAsset, setSelectedMitreAsset] = useState<MitreAsset | null>(null);
+  const [sourceFilters, setSourceFilters] = useState<Set<ResourceType>>(() => new Set<ResourceType>(['ctid', 'sigma', 'elastic', 'splunk']));
+  const [showSourceFilter, setShowSourceFilter] = useState(false);
   
   const platform = product.platforms[0];
   
@@ -342,15 +346,44 @@ export function ProductView({ product, onBack }: ProductViewProps) {
 
   const totalAnalytics = filteredStrategies.reduce((sum, s) => sum + s.analytics.length, 0);
   
+  const techniqueSources = useMemo(() => {
+    return autoMapping.enrichedMapping?.techniqueSources || {};
+  }, [autoMapping.enrichedMapping?.techniqueSources]);
+
+  const availableSources = useMemo(() => {
+    const sources = new Set<ResourceType>();
+    Object.values(techniqueSources).forEach(srcList => {
+      srcList.forEach(src => sources.add(src));
+    });
+    return Array.from(sources).filter(s => s !== 'mitre_stix') as ResourceType[];
+  }, [techniqueSources]);
+
+  const getSourcesForStrategy = (strategy: { techniques: string[] }): ResourceType[] => {
+    const sources = new Set<ResourceType>();
+    strategy.techniques.forEach(techId => {
+      const techSources = techniqueSources[techId] || [];
+      techSources.forEach(src => {
+        if (src !== 'mitre_stix') sources.add(src);
+      });
+    });
+    return Array.from(sources);
+  };
+
   const filteredCommunityStrategies = useMemo(() => {
     if (!autoMapping.enrichedMapping?.detectionStrategies) return [];
+    const hasTechniqueSources = Object.keys(techniqueSources).length > 0;
     return autoMapping.enrichedMapping.detectionStrategies.map(strategy => ({
       ...strategy,
       analytics: strategy.analytics.filter(a => 
         platformMatchesAny(a.platforms, allPlatforms)
       )
-    })).filter(s => s.analytics.length > 0);
-  }, [autoMapping.enrichedMapping?.detectionStrategies, allPlatforms]);
+    })).filter(s => s.analytics.length > 0).filter(s => {
+      if (!hasTechniqueSources) return true;
+      const strategySources = getSourcesForStrategy(s);
+      if (strategySources.length === 0) return true;
+      return strategySources.some(src => sourceFilters.has(src));
+    });
+  }, [autoMapping.enrichedMapping?.detectionStrategies, allPlatforms, sourceFilters, techniqueSources]);
 
   const communityStrategiesCount = filteredCommunityStrategies.length;
   const communityAnalyticsCount = filteredCommunityStrategies.reduce(
@@ -741,10 +774,64 @@ export function ProductView({ product, onBack }: ProductViewProps) {
 
           {/* Additional Coverage from Community Resources */}
           <section id="community-coverage" className="mt-10">
-            <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
-              <Zap className="w-5 h-5 text-primary" />
-              Additional Coverage from Community Resources
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold text-foreground flex items-center gap-2">
+                <Zap className="w-5 h-5 text-primary" />
+                Additional Coverage from Community Resources
+                {availableSources.length > 0 && (
+                  <Badge variant="secondary" className="ml-2 text-xs">
+                    {communityStrategiesCount} Strategies / {communityAnalyticsCount} Analytics
+                  </Badge>
+                )}
+              </h2>
+              {availableSources.length > 0 && (
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => setShowSourceFilter(!showSourceFilter)}
+                  className="gap-2"
+                >
+                  <Filter className="w-4 h-4" />
+                  Filter Sources
+                </Button>
+              )}
+            </div>
+            
+            {showSourceFilter && availableSources.length > 0 && (
+              <div className="mb-4 p-3 border border-border rounded-lg bg-muted/30 flex flex-wrap gap-2 items-center">
+                <span className="text-sm text-muted-foreground mr-2">Show from:</span>
+                {(['sigma', 'elastic', 'splunk', 'ctid'] as ResourceType[]).filter(s => availableSources.includes(s)).map(source => {
+                  const isActive = sourceFilters.has(source);
+                  const sourceConfig = RESOURCE_LABELS[source];
+                  return (
+                    <Button
+                      key={source}
+                      variant={isActive ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => {
+                        const newFilters = new Set(sourceFilters);
+                        if (isActive) {
+                          newFilters.delete(source);
+                        } else {
+                          newFilters.add(source);
+                        }
+                        setSourceFilters(newFilters);
+                      }}
+                      className={cn(
+                        "text-xs",
+                        isActive && source === 'sigma' && "bg-purple-600 hover:bg-purple-700",
+                        isActive && source === 'elastic' && "bg-orange-600 hover:bg-orange-700",
+                        isActive && source === 'splunk' && "bg-green-600 hover:bg-green-700",
+                        isActive && source === 'ctid' && "bg-blue-600 hover:bg-blue-700"
+                      )}
+                    >
+                      {sourceConfig?.label || source}
+                    </Button>
+                  );
+                })}
+              </div>
+            )}
+            
             <p className="text-muted-foreground mb-6">
               Detection strategies derived from techniques discovered in community detection rules (Sigma, Elastic, Splunk).
             </p>
@@ -761,6 +848,7 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                 {filteredCommunityStrategies.map((strategy) => {
                   const isStrategyExpanded = expandedStrategies.has(`community-${strategy.id}`);
                   const stixDataComponents = autoMapping.enrichedMapping?.dataComponents || [];
+                  const strategySources = getSourcesForStrategy(strategy);
                   
                   return (
                     <div key={`community-${strategy.id}`} className="border border-border rounded-lg overflow-hidden bg-card">
@@ -784,6 +872,20 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                           <Badge variant="secondary" className="text-xs">
                             {strategy.analytics.length} Analytics
                           </Badge>
+                          {strategySources.map(source => (
+                            <Badge 
+                              key={source} 
+                              className={cn(
+                                "text-xs text-white",
+                                source === 'sigma' && "bg-purple-600",
+                                source === 'elastic' && "bg-orange-600",
+                                source === 'splunk' && "bg-green-600",
+                                source === 'ctid' && "bg-blue-600"
+                              )}
+                            >
+                              {source === 'sigma' ? 'Sigma' : source === 'elastic' ? 'Elastic' : source === 'splunk' ? 'Splunk' : 'CTID'}
+                            </Badge>
+                          ))}
                         </div>
                       </button>
 

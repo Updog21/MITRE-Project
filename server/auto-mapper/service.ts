@@ -93,6 +93,7 @@ function combineAllMappings(
   sources: ResourceType[]
 ): NormalizedMapping {
   const techniqueSet = new Set<string>();
+  const techniqueSources: Record<string, ResourceType[]> = {};
   const analyticsMap = new Map<string, NormalizedMapping['analytics'][0]>();
   const dataComponentsMap = new Map<string, NormalizedMapping['dataComponents'][0]>();
   const rawDataList: any[] = [];
@@ -100,6 +101,13 @@ function combineAllMappings(
   for (const mapping of mappings) {
     for (const ds of mapping.detectionStrategies) {
       techniqueSet.add(ds);
+      const techId = ds.startsWith('DS-') ? ds.substring(3) : ds;
+      if (!techniqueSources[techId]) {
+        techniqueSources[techId] = [];
+      }
+      if (!techniqueSources[techId].includes(mapping.source)) {
+        techniqueSources[techId].push(mapping.source);
+      }
     }
     
     for (const analytic of mapping.analytics) {
@@ -130,6 +138,7 @@ function combineAllMappings(
     analytics: Array.from(analyticsMap.values()),
     dataComponents: Array.from(dataComponentsMap.values()),
     rawData: rawDataList,
+    techniqueSources,
   };
 }
 

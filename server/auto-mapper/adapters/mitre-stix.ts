@@ -128,6 +128,7 @@ export class MitreStixAdapter implements ResourceAdapter {
           id: `MITRE-${externalId || obj.id}`,
           name: `Monitor ${obj.name}`,
           description: obj.description,
+          source: 'mitre_stix',
         });
       } else if (obj.type === 'x-mitre-data-source') {
         dataComponents.push({
@@ -142,6 +143,7 @@ export class MitreStixAdapter implements ResourceAdapter {
           id: `MITRE-ASSET-${externalId || obj.id}`,
           name: `Asset: ${obj.name}`,
           description: obj.description,
+          source: 'mitre_stix',
         });
       }
     }

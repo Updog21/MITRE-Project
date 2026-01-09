@@ -30,7 +30,10 @@ export interface EnrichedCommunityMapping {
   detectionStrategies: StixDetectionStrategy[];
   dataComponents: StixDataComponent[];
   communityAnalytics: AnalyticMapping[];
+  techniqueSources: Record<string, ResourceType[]>;
 }
+
+export type ResourceType = 'ctid' | 'sigma' | 'elastic' | 'splunk' | 'mitre_stix';
 
 export interface AnalyticMapping {
   id: string;
@@ -38,6 +41,7 @@ export interface AnalyticMapping {
   description?: string;
   logSources?: string[];
   query?: string;
+  source?: ResourceType;
 }
 
 export interface DataComponentMapping {
@@ -55,6 +59,7 @@ export interface NormalizedMapping {
   analytics: AnalyticMapping[];
   dataComponents: DataComponentMapping[];
   rawData: unknown;
+  techniqueSources?: Record<string, ResourceType[]>;
 }
 
 export interface MappingResult {
@@ -253,6 +258,7 @@ export function useAutoMappingWithAutoRun(
       detectionStrategies: stixMapping?.detectionStrategies || [],
       dataComponents: stixMapping?.dataComponents || [],
       communityAnalytics: rawData.mapping.analytics,
+      techniqueSources: rawData.mapping.techniqueSources || {},
     };
   }, [rawData, combinedTechniqueIds, stixMapping]);
 

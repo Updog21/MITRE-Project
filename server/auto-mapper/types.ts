@@ -6,6 +6,7 @@ export interface NormalizedMapping {
   analytics: AnalyticMapping[];
   dataComponents: DataComponentMapping[];
   rawData: unknown;
+  techniqueSources?: Record<string, ResourceType[]>;
 }
 
 export interface AnalyticMapping {
@@ -14,6 +15,7 @@ export interface AnalyticMapping {
   description?: string;
   logSources?: string[];
   query?: string;
+  source?: ResourceType;
 }
 
 export interface DataComponentMapping {

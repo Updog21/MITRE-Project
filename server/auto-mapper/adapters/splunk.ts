@@ -176,6 +176,7 @@ export class SplunkAdapter implements ResourceAdapter {
         id: `SPLUNK-${detection.id}`,
         name: detection.name,
         description: detection.description,
+        source: 'splunk',
         query: detection.search,
         logSources: detection.data_source,
       });

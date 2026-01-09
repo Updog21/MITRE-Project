@@ -90,6 +90,7 @@ export class CTIDAdapter implements ResourceAdapter {
           id: `CTID-${mapping.capability_id}-${mapping.attack_object_id}`,
           name: `${mapping.capability_description} → ${mapping.attack_object_name}`,
           description: `Maps ${mapping.mapping_type} to ATT&CK technique ${mapping.attack_object_id}`,
+          source: 'ctid',
         });
       }
     }

@@ -160,6 +160,7 @@ export class SigmaAdapter implements ResourceAdapter {
         id: `SIGMA-${rule.id}`,
         name: rule.title,
         description: rule.description,
+        source: 'sigma',
         logSources: [
           rule.logsource.product,
           rule.logsource.service,

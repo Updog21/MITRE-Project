@@ -178,6 +178,7 @@ export class ElasticAdapter implements ResourceAdapter {
         id: `ELASTIC-${rule.rule_id}`,
         name: rule.name,
         description: rule.description,
+        source: 'elastic',
         query: rule.query,
       });
 
