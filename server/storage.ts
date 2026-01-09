@@ -58,7 +58,7 @@ export interface IStorage {
   bulkCreateMitreAssets(assetList: InsertMitreAsset[]): Promise<void>;
   
   // Hybrid Selector operations
-  updateProductHybridSelector(productId: string, selectorType: string, selectorValue: string): Promise<Product | undefined>;
+  updateProductHybridSelector(productId: string, selectorType: string, selectorValues: string[]): Promise<Product | undefined>;
 }
 
 export class PostgresStorage implements IStorage {

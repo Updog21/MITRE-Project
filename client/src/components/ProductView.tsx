@@ -170,7 +170,7 @@ function DataComponentDetail({
 interface ProductData {
   id: string;
   hybridSelectorType: 'platform' | null;
-  hybridSelectorValue: string | null;
+  hybridSelectorValues: string[] | null;
 }
 
 export function ProductView({ product, onBack }: ProductViewProps) {
@@ -441,7 +441,7 @@ export function ProductView({ product, onBack }: ProductViewProps) {
             <HybridSelector
               productId={product.id}
               currentType={productData?.hybridSelectorType || null}
-              currentValue={productData?.hybridSelectorValue || null}
+              currentValues={productData?.hybridSelectorValues || null}
               onRerun={() => {
                 refetchProduct();
                 autoMapping.triggerAutoRun();

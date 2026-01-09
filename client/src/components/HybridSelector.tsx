@@ -3,14 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Loader2, RefreshCw, Cloud, CheckCircle2, Settings2, AlertTriangle } from 'lucide-react';
+import { Loader2, RefreshCw, Check, Settings2, AlertTriangle, Monitor, Terminal, Cloud, Server, Globe, Box, Network, Shield, Database } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface HybridSelectorOption {
   label: string;
@@ -21,11 +15,23 @@ interface HybridSelectorOption {
 interface HybridSelectorProps {
   productId: string;
   currentType?: string | null;
-  currentValue?: string | null;
-  onSelectionChange?: (type: 'platform', value: string) => void;
+  currentValues?: string[] | null;
   onRerun?: () => void;
   isLoading?: boolean;
 }
+
+const PLATFORM_ICONS: Record<string, React.ReactNode> = {
+  'Windows': <Monitor className="w-5 h-5" />,
+  'Linux': <Terminal className="w-5 h-5" />,
+  'macOS': <Monitor className="w-5 h-5" />,
+  'IaaS': <Cloud className="w-5 h-5" />,
+  'SaaS': <Globe className="w-5 h-5" />,
+  'Containers': <Box className="w-5 h-5" />,
+  'Network': <Network className="w-5 h-5" />,
+  'Identity Provider': <Shield className="w-5 h-5" />,
+  'Office 365': <Database className="w-5 h-5" />,
+  'ESXi': <Server className="w-5 h-5" />,
+};
 
 async function fetchHybridOptions(): Promise<HybridSelectorOption[]> {
   const response = await fetch('/api/hybrid-selector/options');
@@ -38,31 +44,16 @@ async function fetchHybridOptions(): Promise<HybridSelectorOption[]> {
 async function updateProductHybridSelector(
   productId: string,
   selectorType: string,
-  selectorValue: string
+  selectorValues: string[]
 ): Promise<void> {
   const response = await fetch(`/api/products/${productId}/hybrid-selector`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ hybridSelectorType: selectorType, hybridSelectorValue: selectorValue }),
+    body: JSON.stringify({ hybridSelectorType: selectorType, hybridSelectorValues: selectorValues }),
   });
   if (!response.ok) {
     throw new Error('Failed to update product hybrid selector');
   }
-}
-
-async function fetchTechniquesBySelector(
-  selectorType: 'platform',
-  selectorValue: string
-): Promise<{ techniqueIds: string[]; count: number }> {
-  const response = await fetch('/api/mitre-stix/techniques/by-selector', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ selectorType, selectorValue }),
-  });
-  if (!response.ok) {
-    throw new Error('Failed to fetch techniques by selector');
-  }
-  return response.json();
 }
 
 export function useHybridSelectorOptions() {
@@ -73,41 +64,30 @@ export function useHybridSelectorOptions() {
   });
 }
 
-export function useHybridSelectorTechniques(selectorType?: 'platform', selectorValue?: string) {
-  return useQuery({
-    queryKey: ['hybrid-selector-techniques', selectorType, selectorValue],
-    queryFn: () => fetchTechniquesBySelector(selectorType!, selectorValue!),
-    enabled: !!selectorType && !!selectorValue,
-    staleTime: 5 * 60 * 1000,
-  });
-}
-
 export function HybridSelector({
   productId,
   currentType,
-  currentValue,
-  onSelectionChange,
+  currentValues,
   onRerun,
   isLoading,
 }: HybridSelectorProps) {
   const queryClient = useQueryClient();
   const { data: options, isLoading: optionsLoading } = useHybridSelectorOptions();
   
-  // Check if the stored type is a legacy asset type (not supported anymore)
   const isLegacyAssetType = currentType === 'asset';
   
-  const [selectedKey, setSelectedKey] = useState<string | undefined>(
-    currentType && currentValue && !isLegacyAssetType ? `${currentType}:${currentValue}` : undefined
+  const [selectedPlatforms, setSelectedPlatforms] = useState<Set<string>>(
+    new Set(currentValues || [])
   );
-  // Force editing mode if legacy asset type or no selection
-  const [isEditing, setIsEditing] = useState(!currentType || !currentValue || isLegacyAssetType);
+  const [hasChanges, setHasChanges] = useState(false);
 
   const updateMutation = useMutation({
-    mutationFn: ({ type, value }: { type: string; value: string }) =>
-      updateProductHybridSelector(productId, type, value),
+    mutationFn: ({ values }: { values: string[] }) =>
+      updateProductHybridSelector(productId, 'platform', values),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
-      setIsEditing(false);
+      queryClient.invalidateQueries({ queryKey: ['product', productId] });
+      setHasChanges(false);
       if (onRerun) {
         onRerun();
       }
@@ -115,30 +95,38 @@ export function HybridSelector({
   });
 
   useEffect(() => {
-    if (currentType && currentValue && currentType !== 'asset') {
-      setSelectedKey(`${currentType}:${currentValue}`);
-    } else if (currentType === 'asset') {
-      // Legacy asset type - clear selection and force re-selection
-      setSelectedKey(undefined);
-      setIsEditing(true);
+    if (currentValues && !isLegacyAssetType) {
+      setSelectedPlatforms(new Set(currentValues));
+    } else {
+      setSelectedPlatforms(new Set());
     }
-  }, [currentType, currentValue]);
+    setHasChanges(false);
+  }, [currentValues, isLegacyAssetType]);
 
-  const handleSelectionChange = (key: string) => {
-    setSelectedKey(key);
-    const [type, value] = key.split(':');
-    if (onSelectionChange) {
-      onSelectionChange(type as 'platform', value);
+  const togglePlatform = (platform: string) => {
+    setSelectedPlatforms(prev => {
+      const next = new Set(prev);
+      if (next.has(platform)) {
+        next.delete(platform);
+      } else {
+        next.add(platform);
+      }
+      return next;
+    });
+    setHasChanges(true);
+  };
+
+  const handleSave = () => {
+    const values = Array.from(selectedPlatforms);
+    if (values.length > 0) {
+      updateMutation.mutate({ values });
     }
   };
 
-  const handleApply = () => {
-    if (!selectedKey) return;
-    const [type, value] = selectedKey.split(':');
-    updateMutation.mutate({ type, value });
+  const handleClear = () => {
+    setSelectedPlatforms(new Set());
+    setHasChanges(true);
   };
-
-  const selectedOption = options?.find(o => `${o.type}:${o.value}` === selectedKey);
 
   if (optionsLoading) {
     return (
@@ -153,7 +141,7 @@ export function HybridSelector({
 
   return (
     <Card className="bg-card/50 backdrop-blur border-amber-500/30" data-testid="card-hybrid-selector">
-      <CardHeader className="pb-2">
+      <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm flex items-center gap-2">
             <div className="w-8 h-8 rounded bg-amber-500/20 flex items-center justify-center">
@@ -161,99 +149,109 @@ export function HybridSelector({
             </div>
             Platform Coverage Overlay
           </CardTitle>
-          {currentType && currentValue && !isEditing && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsEditing(true)}
-              data-testid="button-edit-selector"
-            >
-              Change
-            </Button>
+          {selectedPlatforms.size > 0 && (
+            <Badge variant="secondary" className="text-xs">
+              {selectedPlatforms.size} selected
+            </Badge>
           )}
         </div>
         <CardDescription>
-          Select a platform to add additional technique coverage from MITRE ATT&CK platform relationships
+          Select one or more platforms to add additional technique coverage from MITRE ATT&CK
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">
-        {!isEditing && currentType && currentValue && selectedOption ? (
-          <div className="flex items-center justify-between p-3 rounded bg-amber-500/10 border border-amber-500/20">
-            <div className="flex items-center gap-3">
-              <Cloud className="w-5 h-5 text-amber-400" />
-              <div>
-                <div className="font-medium text-foreground">{selectedOption.label}</div>
-                <div className="flex items-center gap-2 mt-1">
-                  <Badge className="text-xs bg-blue-500/20 text-blue-400 border-blue-500/30">
-                    Platform
-                  </Badge>
-                  <span className="text-xs text-muted-foreground">{selectedOption.value}</span>
-                </div>
-              </div>
-            </div>
-            <CheckCircle2 className="w-5 h-5 text-green-400" />
+      <CardContent className="space-y-4">
+        {isLegacyAssetType && (
+          <div className="flex items-center gap-2 p-3 rounded bg-yellow-500/10 border border-yellow-500/30">
+            <AlertTriangle className="w-5 h-5 text-yellow-500 flex-shrink-0" />
+            <p className="text-sm text-yellow-200">
+              Asset-based filtering is no longer supported. Please select platforms below.
+            </p>
           </div>
-        ) : (
-          <>
-            {isLegacyAssetType && (
-              <div className="flex items-center gap-2 p-3 rounded bg-yellow-500/10 border border-yellow-500/30 mb-3">
-                <AlertTriangle className="w-5 h-5 text-yellow-500 flex-shrink-0" />
-                <p className="text-sm text-yellow-200">
-                  Asset-based filtering is no longer supported. Please select a platform type below.
-                </p>
-              </div>
-            )}
-            <Select value={selectedKey} onValueChange={handleSelectionChange}>
-              <SelectTrigger className="bg-background" data-testid="select-hybrid-type">
-                <SelectValue placeholder="Select platform type..." />
-              </SelectTrigger>
-              <SelectContent>
-                {options?.map((option) => (
-                  <SelectItem key={`${option.type}:${option.value}`} value={`${option.type}:${option.value}`}>
-                    <div className="flex items-center gap-2">
-                      <Cloud className="w-4 h-4 text-blue-400" />
-                      {option.label}
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <div className="flex gap-2">
-              {currentType && currentValue && !isLegacyAssetType && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => {
-                    setIsEditing(false);
-                    setSelectedKey(`${currentType}:${currentValue}`);
-                  }}
-                  data-testid="button-cancel-selector"
-                >
-                  Cancel
-                </Button>
-              )}
-              <Button
-                size="sm"
-                onClick={handleApply}
-                disabled={!selectedKey || updateMutation.isPending || isLoading}
-                data-testid="button-apply-selector"
-              >
-                {updateMutation.isPending || isLoading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Applying...
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw className="w-4 h-4 mr-2" />
-                    Apply & Re-run Mapper
-                  </>
-                )}
-              </Button>
-            </div>
-          </>
         )}
+        
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+          {options?.map((option) => {
+            const isSelected = selectedPlatforms.has(option.value);
+            const icon = PLATFORM_ICONS[option.value] || <Cloud className="w-5 h-5" />;
+            
+            return (
+              <button
+                key={option.value}
+                onClick={() => togglePlatform(option.value)}
+                className={cn(
+                  "relative flex flex-col items-center justify-center gap-2 p-4 rounded-lg border-2 transition-all duration-200",
+                  "hover:border-amber-500/50 hover:bg-amber-500/5",
+                  isSelected 
+                    ? "border-amber-500 bg-amber-500/10 text-amber-400" 
+                    : "border-border bg-background/50 text-muted-foreground"
+                )}
+                data-testid={`tile-platform-${option.value.toLowerCase().replace(/\s+/g, '-')}`}
+              >
+                {isSelected && (
+                  <div className="absolute top-1 right-1">
+                    <Check className="w-4 h-4 text-amber-400" />
+                  </div>
+                )}
+                <div className={cn(
+                  "w-10 h-10 rounded-lg flex items-center justify-center",
+                  isSelected ? "bg-amber-500/20" : "bg-muted/50"
+                )}>
+                  {icon}
+                </div>
+                <span className="text-xs font-medium text-center leading-tight">
+                  {option.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {selectedPlatforms.size > 0 && (
+          <div className="flex flex-wrap gap-1.5 pt-2 border-t border-border">
+            <span className="text-xs text-muted-foreground mr-1">Selected:</span>
+            {Array.from(selectedPlatforms).map(platform => (
+              <Badge 
+                key={platform} 
+                className="text-xs bg-amber-500/20 text-amber-400 border-amber-500/30"
+              >
+                {platform}
+              </Badge>
+            ))}
+          </div>
+        )}
+
+        <div className="flex gap-2 pt-2">
+          {selectedPlatforms.size > 0 && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleClear}
+              disabled={updateMutation.isPending || isLoading}
+              data-testid="button-clear-selector"
+            >
+              Clear All
+            </Button>
+          )}
+          <Button
+            size="sm"
+            onClick={handleSave}
+            disabled={selectedPlatforms.size === 0 || updateMutation.isPending || isLoading || !hasChanges}
+            className="flex-1"
+            data-testid="button-save-selector"
+          >
+            {updateMutation.isPending || isLoading ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="w-4 h-4 mr-2" />
+                {hasChanges ? 'Save & Re-run Mapper' : 'Selections Saved'}
+              </>
+            )}
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
