@@ -784,10 +784,10 @@ export function ProductView({ product, onBack }: ProductViewProps) {
               </h2>
               {availableSources.length > 0 && (
                 <Button 
-                  variant="outline" 
+                  variant="ghost" 
                   size="sm"
                   onClick={() => setShowSourceFilter(!showSourceFilter)}
-                  className="gap-2"
+                  className="gap-2 text-muted-foreground hover:text-foreground"
                 >
                   <Filter className="w-4 h-4" />
                   Filter Sources
