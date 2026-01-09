@@ -52,8 +52,10 @@ async function updateProductHybridSelector(
     body: JSON.stringify({ hybridSelectorType: selectorType, hybridSelectorValues: selectorValues }),
   });
   if (!response.ok) {
-    throw new Error('Failed to update product hybrid selector');
+    const errorText = await response.text();
+    throw new Error(`Failed to update product hybrid selector: ${errorText}`);
   }
+  await response.json();
 }
 
 export function useHybridSelectorOptions() {
@@ -91,6 +93,10 @@ export function HybridSelector({
       if (onRerun) {
         onRerun();
       }
+    },
+    onError: (error) => {
+      console.error('Failed to save platform selections:', error);
+      setHasChanges(true);
     },
   });
 

@@ -34,22 +34,42 @@ interface ProductViewProps {
   onBack: () => void;
 }
 
+const PLATFORM_ICON_MAP: Record<string, React.ReactNode> = {
+  'Windows': <Monitor className="w-4 h-4" />,
+  'macOS': <Monitor className="w-4 h-4" />,
+  'Linux': <Terminal className="w-4 h-4" />,
+  'PRE': <Shield className="w-4 h-4" />,
+  'Office Suite': <Database className="w-4 h-4" />,
+  'Office 365': <Database className="w-4 h-4" />,
+  'Identity Provider': <Shield className="w-4 h-4" />,
+  'SaaS': <Globe className="w-4 h-4" />,
+  'IaaS': <Cloud className="w-4 h-4" />,
+  'Network': <Network className="w-4 h-4" />,
+  'Network Devices': <Network className="w-4 h-4" />,
+  'Containers': <Box className="w-4 h-4" />,
+  'ESXi': <Server className="w-4 h-4" />,
+  'Azure AD': <Cloud className="w-4 h-4" />,
+};
+
+const PLATFORM_DISPLAY_NAMES: Record<string, string> = {
+  'Windows': 'Windows',
+  'Linux': 'Linux',
+  'macOS': 'macOS',
+  'Identity Provider': 'Identity Provider',
+  'IaaS': 'Cloud Infrastructure',
+  'SaaS': 'SaaS Application',
+  'Containers': 'Container / Kubernetes',
+  'Network': 'Network Devices',
+  'Office 365': 'Office Suite',
+  'ESXi': 'ESXi / VMware',
+};
+
 function getPlatformIcon(platform: string) {
-  switch (platform) {
-    case 'Windows': return <Monitor className="w-4 h-4" />;
-    case 'macOS': return <Monitor className="w-4 h-4" />;
-    case 'Linux': return <Terminal className="w-4 h-4" />;
-    case 'PRE': return <Shield className="w-4 h-4" />;
-    case 'Office Suite': return <Database className="w-4 h-4" />;
-    case 'Identity Provider': return <Shield className="w-4 h-4" />;
-    case 'SaaS': return <Globe className="w-4 h-4" />;
-    case 'IaaS': return <Cloud className="w-4 h-4" />;
-    case 'Network Devices': return <Network className="w-4 h-4" />;
-    case 'Containers': return <Box className="w-4 h-4" />;
-    case 'ESXi': return <Server className="w-4 h-4" />;
-    case 'Azure AD': return <Cloud className="w-4 h-4" />;
-    default: return <Monitor className="w-4 h-4" />;
-  }
+  return PLATFORM_ICON_MAP[platform] || <Monitor className="w-4 h-4" />;
+}
+
+function getPlatformDisplayName(platform: string) {
+  return PLATFORM_DISPLAY_NAMES[platform] || platform;
 }
 
 interface LogSourceRow {
@@ -423,7 +443,7 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                       data-testid={`chip-platform-overlay-${platformName.toLowerCase().replace(/\s+/g, '-')}`}
                     >
                       {getPlatformIcon(platformName)}
-                      <span className="text-amber-400">{platformName}</span>
+                      <span className="text-amber-400">{getPlatformDisplayName(platformName)}</span>
                       <Badge className="text-[10px] px-1 py-0 bg-amber-500/20 text-amber-400 border-amber-500/30">Overlay</Badge>
                     </div>
                   ))}
