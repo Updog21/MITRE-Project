@@ -18,6 +18,8 @@ COPY package*.json ./
 COPY drizzle.config.ts ./
 COPY shared ./shared
 COPY scripts ./scripts
+COPY server ./server
+COPY client ./client
 
 RUN npm ci
 
