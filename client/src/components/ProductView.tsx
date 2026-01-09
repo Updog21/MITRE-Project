@@ -11,7 +11,6 @@ import {
   Terminal,
   Monitor,
   Cloud,
-  CheckCircle2,
   ArrowLeft,
   Shield,
   X,
@@ -577,8 +576,8 @@ export function ProductView({ product, onBack }: ProductViewProps) {
               <Progress value={coverageScore} className="h-2 mb-6" />
               
               <p className="text-sm text-muted-foreground mb-6">
-                This product maps to <strong className="text-foreground">{filteredStrategies.length} detection strategies</strong> for {platform}, 
-                containing <strong className="text-foreground">{totalAnalytics} analytics</strong> that 
+                This product maps to <strong className="text-foreground">{filteredStrategies.length + communityStrategiesCount} detection strategies</strong> for {platform}, 
+                containing <strong className="text-foreground">{totalAnalytics + communityAnalyticsCount} analytics</strong> that 
                 cover <strong className="text-foreground">{coveredTechniques.length} ATT&CK techniques</strong>.
               </p>
 
@@ -594,7 +593,6 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                         rel="noopener noreferrer"
                         className="flex items-center gap-2 p-2 rounded border border-border hover:border-primary/30 hover:bg-muted/50 transition-colors group"
                       >
-                        <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
                         <code className="text-xs font-mono text-red-600">{t.id}</code>
                         <span className="text-sm text-muted-foreground group-hover:text-foreground transition-colors truncate">{t.name}</span>
                       </a>
