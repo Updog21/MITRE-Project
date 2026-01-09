@@ -306,25 +306,35 @@ export function ProductView({ product, onBack }: ProductViewProps) {
   const filteredStrategies = useMemo(() => {
     return strategies.map(strategy => ({
       ...strategy,
-      analytics: strategy.analytics.filter(a => a.platforms.includes(platform))
+      analytics: strategy.analytics.filter(a => 
+        allPlatforms.some(p => a.platforms.includes(p))
+      )
     })).filter(s => s.analytics.length > 0);
-  }, [strategies, platform]);
+  }, [strategies, allPlatforms]);
 
   const totalAnalytics = filteredStrategies.reduce((sum, s) => sum + s.analytics.length, 0);
   
-  const communityStrategiesCount = autoMapping.enrichedMapping?.detectionStrategies?.length || 0;
-  const communityAnalyticsCount = autoMapping.enrichedMapping?.detectionStrategies?.reduce(
+  const filteredCommunityStrategies = useMemo(() => {
+    if (!autoMapping.enrichedMapping?.detectionStrategies) return [];
+    return autoMapping.enrichedMapping.detectionStrategies.map(strategy => ({
+      ...strategy,
+      analytics: strategy.analytics.filter(a => 
+        allPlatforms.some(p => a.platforms.includes(p))
+      )
+    })).filter(s => s.analytics.length > 0);
+  }, [autoMapping.enrichedMapping?.detectionStrategies, allPlatforms]);
+
+  const communityStrategiesCount = filteredCommunityStrategies.length;
+  const communityAnalyticsCount = filteredCommunityStrategies.reduce(
     (sum, s) => sum + s.analytics.length, 0
-  ) || 0;
+  );
   
   const coveredTechniques = useMemo(() => {
     const techIds = new Set<string>();
     filteredStrategies.forEach(s => s.techniques.forEach(t => techIds.add(t)));
-    if (autoMapping.enrichedMapping?.detectionStrategies) {
-      autoMapping.enrichedMapping.detectionStrategies.forEach(s => s.techniques.forEach(t => techIds.add(t)));
-    }
+    filteredCommunityStrategies.forEach(s => s.techniques.forEach(t => techIds.add(t)));
     return techniques.filter(t => techIds.has(t.id));
-  }, [filteredStrategies, autoMapping.enrichedMapping]);
+  }, [filteredStrategies, filteredCommunityStrategies]);
 
   const coverageScore = Math.min(100, totalAnalytics * 15 + filteredStrategies.length * 10);
 
@@ -752,9 +762,9 @@ export function ProductView({ product, onBack }: ProductViewProps) {
               </div>
             )}
 
-            {autoMapping.enrichedMapping && autoMapping.enrichedMapping.detectionStrategies.length > 0 && (
+            {filteredCommunityStrategies.length > 0 && (
               <div className="space-y-4">
-                {autoMapping.enrichedMapping.detectionStrategies.map((strategy) => {
+                {filteredCommunityStrategies.map((strategy) => {
                   const isStrategyExpanded = expandedStrategies.has(`community-${strategy.id}`);
                   const stixDataComponents = autoMapping.enrichedMapping?.dataComponents || [];
                   
@@ -908,13 +918,13 @@ export function ProductView({ product, onBack }: ProductViewProps) {
               </div>
             )}
 
-            {autoMapping.data?.status === 'matched' && !autoMapping.isLoading && autoMapping.enrichedMapping && autoMapping.enrichedMapping.detectionStrategies.length === 0 && autoMapping.enrichedMapping.techniqueIds.length === 0 && (
+            {autoMapping.data?.status === 'matched' && !autoMapping.isLoading && autoMapping.enrichedMapping && filteredCommunityStrategies.length === 0 && autoMapping.enrichedMapping.techniqueIds.length === 0 && (
               <div className="py-8 text-center border border-dashed border-border rounded-lg">
                 <p className="text-muted-foreground">Found community references, but no MITRE ATT&CK technique IDs could be extracted from the detection rules.</p>
               </div>
             )}
 
-            {autoMapping.data?.status === 'matched' && !autoMapping.isLoading && autoMapping.enrichedMapping && autoMapping.enrichedMapping.detectionStrategies.length === 0 && autoMapping.enrichedMapping.techniqueIds.length > 0 && (
+            {autoMapping.data?.status === 'matched' && !autoMapping.isLoading && autoMapping.enrichedMapping && filteredCommunityStrategies.length === 0 && autoMapping.enrichedMapping.techniqueIds.length > 0 && (
               <div className="p-4 rounded-lg border border-border bg-card">
                 <div className="flex items-start gap-3">
                   <Info className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-0.5" />
