@@ -925,9 +925,6 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                                   .map(dcId => stixDataComponents.find(dc => dc.id === dcId))
                                   .filter(Boolean);
 
-                                const logSources = getLogSourcesForAnalytic(analytic);
-                                const mutableElements = getMutableElementsForAnalytic(analytic);
-
                                 return (
                                   <div key={`community-${analytic.id}`} className="border border-border rounded-md overflow-hidden bg-background">
                                     <button
@@ -946,7 +943,7 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                                         </div>
                                       </div>
                                       <Badge variant="outline" className="text-xs">
-                                        {logSources.length > 0 ? `${logSources.length} Log Sources` : `${analyticDataComponents.length} Data Components`}
+                                        {analyticDataComponents.length} Data Components
                                       </Badge>
                                     </button>
 
@@ -956,6 +953,17 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                                           <h5 className="text-sm font-medium text-muted-foreground mb-2">Description</h5>
                                           <p className="text-sm text-foreground">{analytic.description}</p>
                                         </div>
+
+                                        {analytic.platforms.length > 0 && (
+                                          <div>
+                                            <h5 className="text-sm font-medium text-muted-foreground mb-2">Platforms</h5>
+                                            <div className="flex flex-wrap gap-1">
+                                              {analytic.platforms.map(p => (
+                                                <Badge key={p} variant="outline" className="text-xs">{p}</Badge>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        )}
 
                                         {strategy.techniques.length > 0 && (
                                           <div>
@@ -981,76 +989,32 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                                         <div>
                                           <h5 className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-2">
                                             <Database className="w-4 h-4" />
-                                            Log Sources
+                                            Data Components
                                           </h5>
                                           <div className="border border-border rounded-md overflow-hidden">
                                             <table className="w-full text-sm">
                                               <thead className="bg-muted/50">
                                                 <tr>
                                                   <th className="text-left px-3 py-2 font-medium text-muted-foreground">Data Component</th>
-                                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Name</th>
-                                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Channel</th>
+                                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Data Source</th>
                                                 </tr>
                                               </thead>
                                               <tbody className="divide-y divide-border">
-                                                {logSources.length > 0 ? logSources.map((row, idx) => (
-                                                  <tr key={`${row.dataComponentId}-${idx}`}>
-                                                    <td className="px-3 py-2">
-                                                      <button
-                                                        onClick={() => {
-                                                          const dc = dataComponents[row.dataComponentId];
-                                                          if (dc) setSelectedDataComponent(dc);
-                                                        }}
-                                                        className="text-primary hover:underline text-left"
-                                                        data-testid={`button-view-dc-community-${row.dataComponentId}`}
-                                                      >
-                                                        {row.dataComponentName}
-                                                        <span className="text-muted-foreground ml-1">({row.dataComponentId})</span>
-                                                      </button>
-                                                    </td>
-                                                    <td className="px-3 py-2 font-mono text-foreground">{row.logSourceName}</td>
-                                                    <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{row.channel}</td>
-                                                  </tr>
-                                                )) : analyticDataComponents.map((dc, idx) => (
+                                                {analyticDataComponents.map((dc, idx) => (
                                                   <tr key={idx}>
                                                     <td className="px-3 py-2 text-foreground">{dc?.name || 'Unknown'}</td>
-                                                    <td className="px-3 py-2 text-muted-foreground">-</td>
-                                                    <td className="px-3 py-2 text-muted-foreground">-</td>
+                                                    <td className="px-3 py-2 text-muted-foreground">{dc?.dataSource || '-'}</td>
                                                   </tr>
                                                 ))}
-                                                {logSources.length === 0 && analyticDataComponents.length === 0 && (
+                                                {analyticDataComponents.length === 0 && (
                                                   <tr>
-                                                    <td colSpan={3} className="px-3 py-2 text-muted-foreground italic">No log sources defined</td>
+                                                    <td colSpan={2} className="px-3 py-2 text-muted-foreground italic">No data components defined</td>
                                                   </tr>
                                                 )}
                                               </tbody>
                                             </table>
                                           </div>
                                         </div>
-
-                                        {mutableElements.length > 0 && (
-                                          <div>
-                                            <h5 className="text-sm font-medium text-muted-foreground mb-2">Mutable Elements</h5>
-                                            <div className="border border-border rounded-md overflow-hidden">
-                                              <table className="w-full text-sm">
-                                                <thead className="bg-muted/50">
-                                                  <tr>
-                                                    <th className="text-left px-3 py-2 font-medium text-muted-foreground w-48">Field</th>
-                                                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Description</th>
-                                                  </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-border">
-                                                  {mutableElements.map(me => (
-                                                    <tr key={me.field}>
-                                                      <td className="px-3 py-2 font-mono text-primary">{me.field}</td>
-                                                      <td className="px-3 py-2 text-foreground">{me.description}</td>
-                                                    </tr>
-                                                  ))}
-                                                </tbody>
-                                              </table>
-                                            </div>
-                                          </div>
-                                        )}
                                       </div>
                                     )}
                                   </div>
