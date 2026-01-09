@@ -792,6 +792,17 @@ export interface CTIDAnalyticMatch {
   analytic: AnalyticItem;
   strategy: DetectionStrategy;
   dataComponentRefs: DataComponentRef[];
+  matchedTechniques: string[];
+}
+
+function techniqueMatches(queryTechId: string, ctidTechId: string): boolean {
+  if (queryTechId === ctidTechId) return true;
+  const queryBase = queryTechId.split('.')[0];
+  const ctidBase = ctidTechId.split('.')[0];
+  if (queryBase !== ctidBase) return false;
+  if (!queryTechId.includes('.') && ctidTechId.startsWith(queryBase + '.')) return true;
+  if (!ctidTechId.includes('.') && queryTechId.startsWith(ctidBase + '.')) return true;
+  return false;
 }
 
 export function getCTIDAnalyticsForTechniques(
@@ -799,22 +810,16 @@ export function getCTIDAnalyticsForTechniques(
   platforms: string[]
 ): CTIDAnalyticMatch[] {
   const matches: CTIDAnalyticMatch[] = [];
-  const seenAnalytics = new Set<string>();
-  
   const normalizedPlatforms = platforms.map(p => p.toLowerCase());
   
-  const matchingStrategies = detectionStrategies.filter(ds =>
-    ds.techniques.some(t => {
-      const baseTech = t.split('.')[0];
-      return techniqueIds.includes(t) || techniqueIds.includes(baseTech) ||
-        techniqueIds.some(tid => tid.split('.')[0] === baseTech);
-    })
-  );
-  
-  matchingStrategies.forEach(strategy => {
+  detectionStrategies.forEach(strategy => {
+    const matchedTechniques = strategy.techniques.filter(ctidTech =>
+      techniqueIds.some(queryTech => techniqueMatches(queryTech, ctidTech))
+    );
+    
+    if (matchedTechniques.length === 0) return;
+    
     strategy.analytics.forEach(analytic => {
-      if (seenAnalytics.has(analytic.id)) return;
-      
       const analyticPlatformsLower = analytic.platforms.map(p => p.toLowerCase());
       const platformMatch = normalizedPlatforms.some(np =>
         analyticPlatformsLower.some(ap => 
@@ -823,7 +828,6 @@ export function getCTIDAnalyticsForTechniques(
       );
       
       if (platformMatch) {
-        seenAnalytics.add(analytic.id);
         const dcRefs = analytic.dataComponents
           .map(dcId => dataComponents[dcId])
           .filter((dc): dc is DataComponentRef => dc !== undefined && dc !== null);
@@ -831,7 +835,8 @@ export function getCTIDAnalyticsForTechniques(
         matches.push({
           analytic,
           strategy,
-          dataComponentRefs: dcRefs
+          dataComponentRefs: dcRefs,
+          matchedTechniques
         });
       }
     });
