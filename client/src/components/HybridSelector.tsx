@@ -215,19 +215,6 @@ export function HybridSelector({
           })}
         </div>
 
-        {selectedPlatforms.size > 0 && (
-          <div className="flex flex-wrap gap-1.5 pt-2 border-t border-border">
-            <span className="text-xs text-muted-foreground mr-1">Selected:</span>
-            {Array.from(selectedPlatforms).map(platform => (
-              <Badge 
-                key={platform} 
-                className="text-xs bg-amber-500/20 text-amber-400 border-amber-500/30"
-              >
-                {platform}
-              </Badge>
-            ))}
-          </div>
-        )}
 
         <div className="flex gap-2 pt-2">
           {(currentValues && currentValues.length > 0) && (
