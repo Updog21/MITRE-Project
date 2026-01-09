@@ -414,6 +414,19 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                       <Badge variant="outline" className="text-[10px] px-1 py-0">Enterprise</Badge>
                     </div>
                   ))}
+                  {(productData?.hybridSelectorValues || [])
+                    .filter(p => !(product.platforms || []).includes(p))
+                    .map(platformName => (
+                    <div
+                      key={`overlay-${platformName}`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 text-sm"
+                      data-testid={`chip-platform-overlay-${platformName.toLowerCase().replace(/\s+/g, '-')}`}
+                    >
+                      {getPlatformIcon(platformName)}
+                      <span className="text-amber-400">{platformName}</span>
+                      <Badge className="text-[10px] px-1 py-0 bg-amber-500/20 text-amber-400 border-amber-500/30">Overlay</Badge>
+                    </div>
+                  ))}
                 </div>
               </div>
 
