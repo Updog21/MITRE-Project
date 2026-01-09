@@ -608,11 +608,6 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                           <Badge variant="secondary" className="text-xs">
                             {strategy.analytics.length} Analytics
                           </Badge>
-                          {strategy.techniques.slice(0, 2).map(t => (
-                            <Badge key={t} className="bg-red-100 text-red-700 border-red-200 font-mono text-xs">
-                              {t}
-                            </Badge>
-                          ))}
                         </div>
                       </button>
 
@@ -620,25 +615,6 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                         <div className="border-t border-border">
                           <div className="px-6 py-4 bg-muted/20">
                             <p className="text-sm text-muted-foreground mb-4">{strategy.description}</p>
-                            
-                            <div className="mb-4">
-                              <span className="text-sm font-medium text-foreground">ATT&CK Techniques: </span>
-                              <span className="text-sm text-muted-foreground">
-                                {strategy.techniques.map((t, i) => (
-                                  <span key={t}>
-                                    <a
-                                      href={`https://attack.mitre.org/techniques/${t.replace('.', '/')}/`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-red-600 hover:underline font-mono"
-                                    >
-                                      {t}
-                                    </a>
-                                    {i < strategy.techniques.length - 1 && ', '}
-                                  </span>
-                                ))}
-                              </span>
-                            </div>
 
                             <h4 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
                               <Layers className="w-4 h-4 text-primary" />
@@ -808,11 +784,6 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                           <Badge variant="secondary" className="text-xs">
                             {strategy.analytics.length} Analytics
                           </Badge>
-                          {strategy.techniques.slice(0, 2).map(t => (
-                            <Badge key={t} className="bg-red-100 text-red-700 border-red-200 font-mono text-xs">
-                              {t}
-                            </Badge>
-                          ))}
                         </div>
                       </button>
 
@@ -820,25 +791,6 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                         <div className="border-t border-border">
                           <div className="px-6 py-4 bg-muted/20">
                             <p className="text-sm text-muted-foreground mb-4">{strategy.description}</p>
-                            
-                            <div className="mb-4">
-                              <span className="text-sm font-medium text-foreground">ATT&CK Techniques: </span>
-                              <span className="text-sm text-muted-foreground">
-                                {strategy.techniques.map((t, i) => (
-                                  <span key={t}>
-                                    <a
-                                      href={`https://attack.mitre.org/techniques/${t.replace('.', '/')}/`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-red-600 hover:underline font-mono"
-                                    >
-                                      {t}
-                                    </a>
-                                    {i < strategy.techniques.length - 1 && ', '}
-                                  </span>
-                                ))}
-                              </span>
-                            </div>
 
                             <h4 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
                               <Layers className="w-4 h-4 text-primary" />
