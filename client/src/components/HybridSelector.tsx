@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Loader2, RefreshCw, Check, Settings2, AlertTriangle, Monitor, Terminal, Cloud, Server, Globe, Box, Network, Shield, Database, Trash2 } from 'lucide-react';
+import { Loader2, RefreshCw, Check, Settings2, AlertTriangle, Monitor, Terminal, Cloud, Server, Globe, Box, Network, Shield, Database } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface HybridSelectorOption {
@@ -43,7 +43,7 @@ async function fetchHybridOptions(): Promise<HybridSelectorOption[]> {
 
 async function updateProductHybridSelector(
   productId: string,
-  selectorType: string | null,
+  selectorType: string,
   selectorValues: string[]
 ): Promise<void> {
   const response = await fetch(`/api/products/${productId}/hybrid-selector`, {
@@ -64,14 +64,6 @@ export function useHybridSelectorOptions() {
   });
 }
 
-function setsAreEqual(a: Set<string>, b: Set<string>): boolean {
-  if (a.size !== b.size) return false;
-  for (const item of a) {
-    if (!b.has(item)) return false;
-  }
-  return true;
-}
-
 export function HybridSelector({
   productId,
   currentType,
@@ -84,25 +76,18 @@ export function HybridSelector({
   
   const isLegacyAssetType = currentType === 'asset';
   
-  const initialValues = useMemo(() => {
-    if (isLegacyAssetType) return new Set<string>();
-    return new Set(currentValues || []);
-  }, [currentValues, isLegacyAssetType]);
-  
   const [selectedPlatforms, setSelectedPlatforms] = useState<Set<string>>(
     new Set(currentValues || [])
   );
-
-  const hasChanges = useMemo(() => {
-    return !setsAreEqual(selectedPlatforms, initialValues);
-  }, [selectedPlatforms, initialValues]);
+  const [hasChanges, setHasChanges] = useState(false);
 
   const updateMutation = useMutation({
     mutationFn: ({ values }: { values: string[] }) =>
-      updateProductHybridSelector(productId, values.length > 0 ? 'platform' : null, values),
+      updateProductHybridSelector(productId, 'platform', values),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['product', productId] });
+      setHasChanges(false);
       if (onRerun) {
         onRerun();
       }
@@ -115,6 +100,7 @@ export function HybridSelector({
     } else {
       setSelectedPlatforms(new Set());
     }
+    setHasChanges(false);
   }, [currentValues, isLegacyAssetType]);
 
   const togglePlatform = (platform: string) => {
@@ -127,16 +113,19 @@ export function HybridSelector({
       }
       return next;
     });
+    setHasChanges(true);
   };
 
   const handleSave = () => {
     const values = Array.from(selectedPlatforms);
-    updateMutation.mutate({ values });
+    if (values.length > 0) {
+      updateMutation.mutate({ values });
+    }
   };
 
-  const handleClearAndSave = () => {
+  const handleClear = () => {
     setSelectedPlatforms(new Set());
-    updateMutation.mutate({ values: [] });
+    setHasChanges(true);
   };
 
   if (optionsLoading) {
@@ -232,22 +221,21 @@ export function HybridSelector({
         )}
 
         <div className="flex gap-2 pt-2">
-          {initialValues.size > 0 && (
+          {selectedPlatforms.size > 0 && (
             <Button
-              variant="destructive"
+              variant="secondary"
               size="sm"
-              onClick={handleClearAndSave}
+              onClick={handleClear}
               disabled={updateMutation.isPending || isLoading}
               data-testid="button-clear-selector"
             >
-              <Trash2 className="w-4 h-4 mr-1" />
               Clear All
             </Button>
           )}
           <Button
             size="sm"
             onClick={handleSave}
-            disabled={!hasChanges || updateMutation.isPending || isLoading}
+            disabled={selectedPlatforms.size === 0 || updateMutation.isPending || isLoading || !hasChanges}
             className="flex-1"
             data-testid="button-save-selector"
           >
@@ -259,7 +247,7 @@ export function HybridSelector({
             ) : (
               <>
                 <RefreshCw className="w-4 h-4 mr-2" />
-                {hasChanges ? 'Save & Re-run Mapper' : 'No Changes'}
+                {hasChanges ? 'Save & Re-run Mapper' : 'Selections Saved'}
               </>
             )}
           </Button>
