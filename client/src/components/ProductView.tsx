@@ -415,40 +415,12 @@ export function ProductView({ product, onBack }: ProductViewProps) {
               <div className="p-4 rounded-lg border border-border bg-card">
                 <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
                   <Database className="w-4 h-4 text-primary" />
-                  Mapped Data Components
-                </h3>
-                <p className="text-sm text-muted-foreground mb-3">
-                  This asset provides the following telemetry sources:
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {product.dataComponentIds.map(dcId => {
-                    const dc = dataComponents[dcId];
-                    return dc ? (
-                      <button
-                        key={dcId}
-                        onClick={() => setSelectedDataComponent(dc)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-muted/50 hover:bg-muted hover:border-primary/30 transition-colors text-sm"
-                        data-testid={`button-dc-chip-${dcId}`}
-                      >
-                        <code className="text-xs text-primary font-mono">{dcId}</code>
-                        <span className="text-foreground">{dc.name}</span>
-                      </button>
-                    ) : null;
-                  })}
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4">
-              <div className="p-4 rounded-lg border border-amber-500/30 bg-card">
-                <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-                  <Shield className="w-4 h-4 text-amber-400" />
-                  Platform Coverage Overlay
+                  Mapped Platforms
                 </h3>
                 <p className="text-sm text-muted-foreground mb-3">
                   {productData?.hybridSelectorValues?.length 
-                    ? "Additional platforms selected for supplemental technique coverage:"
-                    : "Select platforms below to add supplemental ATT&CK technique coverage:"}
+                    ? "Platforms selected for supplemental technique coverage:"
+                    : "Select platforms in the Coverage Overlay to add supplemental coverage:"}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {productData?.hybridSelectorValues && productData.hybridSelectorValues.length > 0 ? (
