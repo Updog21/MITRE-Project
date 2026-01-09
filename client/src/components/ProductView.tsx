@@ -20,6 +20,10 @@ import {
   Zap,
   Loader2,
   AlertCircle,
+  Globe,
+  Network,
+  Box,
+  Server,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAutoMappingWithAutoRun, RESOURCE_LABELS } from '@/hooks/useAutoMapper';
@@ -33,7 +37,16 @@ interface ProductViewProps {
 function getPlatformIcon(platform: string) {
   switch (platform) {
     case 'Windows': return <Monitor className="w-4 h-4" />;
+    case 'macOS': return <Monitor className="w-4 h-4" />;
     case 'Linux': return <Terminal className="w-4 h-4" />;
+    case 'PRE': return <Shield className="w-4 h-4" />;
+    case 'Office Suite': return <Database className="w-4 h-4" />;
+    case 'Identity Provider': return <Shield className="w-4 h-4" />;
+    case 'SaaS': return <Globe className="w-4 h-4" />;
+    case 'IaaS': return <Cloud className="w-4 h-4" />;
+    case 'Network Devices': return <Network className="w-4 h-4" />;
+    case 'Containers': return <Box className="w-4 h-4" />;
+    case 'ESXi': return <Server className="w-4 h-4" />;
     case 'Azure AD': return <Cloud className="w-4 h-4" />;
     default: return <Monitor className="w-4 h-4" />;
   }
@@ -384,27 +397,23 @@ export function ProductView({ product, onBack }: ProductViewProps) {
               <div className="p-4 rounded-lg border border-border bg-card">
                 <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
                   <Shield className="w-4 h-4 text-primary" />
-                  Mapped MITRE Assets
+                  Mapped MITRE Platforms
                 </h3>
                 <p className="text-sm text-muted-foreground mb-3">
-                  This product applies to the following asset types:
+                  This product applies to the following platforms:
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  {(product.mitreAssetIds || []).map(assetId => {
-                    const asset = mitreAssets[assetId];
-                    return asset ? (
-                      <button
-                        key={assetId}
-                        onClick={() => setSelectedMitreAsset(asset)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-muted/50 hover:bg-muted hover:border-primary/30 transition-colors text-sm"
-                        data-testid={`button-asset-${assetId}`}
-                      >
-                        <code className="text-xs text-primary font-mono">{assetId}</code>
-                        <span className="text-foreground">{asset.name}</span>
-                        <Badge variant="outline" className="text-[10px] px-1 py-0">{asset.domain}</Badge>
-                      </button>
-                    ) : null;
-                  })}
+                  {(product.platforms || []).map(platformName => (
+                    <div
+                      key={platformName}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-muted/50 text-sm"
+                      data-testid={`chip-platform-${platformName.toLowerCase().replace(/\s+/g, '-')}`}
+                    >
+                      {getPlatformIcon(platformName)}
+                      <span className="text-foreground">{platformName}</span>
+                      <Badge variant="outline" className="text-[10px] px-1 py-0">Enterprise</Badge>
+                    </div>
+                  ))}
                 </div>
               </div>
 
