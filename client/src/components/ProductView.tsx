@@ -72,6 +72,34 @@ function getPlatformDisplayName(platform: string) {
   return PLATFORM_DISPLAY_NAMES[platform] || platform;
 }
 
+const PLATFORM_ALIASES: Record<string, string[]> = {
+  'Windows': ['Windows'],
+  'Linux': ['Linux'],
+  'macOS': ['macOS'],
+  'Network': ['Network', 'Network Devices'],
+  'IaaS': ['IaaS', 'Azure AD', 'AWS', 'GCP', 'Google Workspace'],
+  'SaaS': ['SaaS', 'Office 365', 'Google Workspace'],
+  'Containers': ['Containers', 'Kubernetes'],
+  'Identity Provider': ['Identity Provider', 'Azure AD', 'Okta', 'Office 365'],
+  'Office 365': ['Office 365', 'SaaS'],
+  'ESXi': ['ESXi', 'VMware'],
+};
+
+function platformMatchesAny(analyticPlatforms: string[], selectedPlatforms: string[]): boolean {
+  for (const selected of selectedPlatforms) {
+    const aliases = PLATFORM_ALIASES[selected] || [selected];
+    for (const alias of aliases) {
+      if (analyticPlatforms.some(ap => 
+        ap.toLowerCase().includes(alias.toLowerCase()) || 
+        alias.toLowerCase().includes(ap.toLowerCase())
+      )) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 interface LogSourceRow {
   dataComponentId: string;
   dataComponentName: string;
@@ -307,7 +335,7 @@ export function ProductView({ product, onBack }: ProductViewProps) {
     return strategies.map(strategy => ({
       ...strategy,
       analytics: strategy.analytics.filter(a => 
-        allPlatforms.some(p => a.platforms.includes(p))
+        platformMatchesAny(a.platforms, allPlatforms)
       )
     })).filter(s => s.analytics.length > 0);
   }, [strategies, allPlatforms]);
@@ -319,7 +347,7 @@ export function ProductView({ product, onBack }: ProductViewProps) {
     return autoMapping.enrichedMapping.detectionStrategies.map(strategy => ({
       ...strategy,
       analytics: strategy.analytics.filter(a => 
-        allPlatforms.some(p => a.platforms.includes(p))
+        platformMatchesAny(a.platforms, allPlatforms)
       )
     })).filter(s => s.analytics.length > 0);
   }, [autoMapping.enrichedMapping?.detectionStrategies, allPlatforms]);
