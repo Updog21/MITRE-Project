@@ -225,10 +225,16 @@ export function ProductView({ product, onBack }: ProductViewProps) {
     staleTime: 30 * 1000,
   });
   
+  const allPlatforms = useMemo(() => {
+    const platforms = new Set<string>(product.platforms || []);
+    (productData?.hybridSelectorValues || []).forEach(p => platforms.add(p));
+    return Array.from(platforms);
+  }, [product.platforms, productData?.hybridSelectorValues]);
+
   const autoMapping = useAutoMappingWithAutoRun(
     product.id, 
     platform,
-    productData?.hybridSelectorValues || null
+    allPlatforms.length > 0 ? allPlatforms : null
   );
   
   useEffect(() => {
