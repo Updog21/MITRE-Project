@@ -131,7 +131,7 @@ async function fetchTechniquesBySelector(
 export function useAutoMappingWithAutoRun(
   productId: string, 
   platform?: string,
-  hybridSelector?: { type: 'platform'; value: string } | null
+  hybridSelectors?: string[] | null
 ) {
   const queryClient = useQueryClient();
   
@@ -163,7 +163,7 @@ export function useAutoMappingWithAutoRun(
   } | null>(null);
   const [stixLoading, setStixLoading] = useState(false);
   
-  const [hybridTechniques, setHybridTechniques] = useState<HybridSelectorTechniques | null>(null);
+  const [hybridTechniques, setHybridTechniques] = useState<string[]>([]);
   const [hybridLoading, setHybridLoading] = useState(false);
 
   const baseTechniqueIds = useMemo(() => {
@@ -181,32 +181,38 @@ export function useAutoMappingWithAutoRun(
   }, [rawData]);
 
   useEffect(() => {
-    if (!hybridSelector?.type || !hybridSelector?.value) {
-      setHybridTechniques(null);
+    if (!hybridSelectors || hybridSelectors.length === 0) {
+      setHybridTechniques([]);
       return;
     }
 
     setHybridLoading(true);
-    fetchTechniquesBySelector(hybridSelector.type, hybridSelector.value)
-      .then(data => {
-        setHybridTechniques({
-          ...data,
-          selectorType: hybridSelector.type,
-          selectorValue: hybridSelector.value,
-        });
+    
+    Promise.all(
+      hybridSelectors.map(platformValue => 
+        fetchTechniquesBySelector('platform', platformValue)
+          .then(data => data.techniqueIds)
+          .catch(err => {
+            console.error(`Failed to fetch techniques for ${platformValue}:`, err);
+            return [] as string[];
+          })
+      )
+    )
+      .then(allTechniqueArrays => {
+        const mergedTechniques = new Set<string>();
+        allTechniqueArrays.forEach(arr => arr.forEach(id => mergedTechniques.add(id)));
+        setHybridTechniques(Array.from(mergedTechniques));
         setHybridLoading(false);
       })
       .catch(err => {
         console.error('Failed to fetch hybrid techniques:', err);
         setHybridLoading(false);
       });
-  }, [hybridSelector?.type, hybridSelector?.value]);
+  }, [hybridSelectors?.join(',')]);
 
   const combinedTechniqueIds = useMemo(() => {
     const baseSet = new Set(baseTechniqueIds);
-    if (hybridTechniques?.techniqueIds) {
-      hybridTechniques.techniqueIds.forEach(id => baseSet.add(id));
-    }
+    hybridTechniques.forEach((id: string) => baseSet.add(id));
     return Array.from(baseSet);
   }, [baseTechniqueIds, hybridTechniques]);
 
