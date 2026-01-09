@@ -436,22 +436,12 @@ export function ProductView({ product, onBack }: ProductViewProps) {
               <div className="p-4 rounded-lg border border-border bg-muted/30">
                 <div className="text-2xl font-semibold text-foreground">
                   {filteredStrategies.length + communityStrategiesCount}
-                  {communityStrategiesCount > 0 && (
-                    <span className="text-sm font-normal text-muted-foreground ml-1">
-                      ({filteredStrategies.length} + {communityStrategiesCount})
-                    </span>
-                  )}
                 </div>
                 <div className="text-sm text-muted-foreground">Detection Strategies</div>
               </div>
               <div className="p-4 rounded-lg border border-border bg-muted/30">
                 <div className="text-2xl font-semibold text-foreground">
                   {totalAnalytics + communityAnalyticsCount}
-                  {communityAnalyticsCount > 0 && (
-                    <span className="text-sm font-normal text-muted-foreground ml-1">
-                      ({totalAnalytics} + {communityAnalyticsCount})
-                    </span>
-                  )}
                 </div>
                 <div className="text-sm text-muted-foreground">Analytics</div>
               </div>
