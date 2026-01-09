@@ -690,25 +690,20 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                                         {strategy.techniques.length > 0 && (
                                           <div>
                                             <h5 className="text-sm font-medium text-muted-foreground mb-2">Techniques</h5>
-                                            <div className="flex flex-wrap gap-2">
-                                              {strategy.techniques.map(techId => {
-                                                const technique = techniques.find(t => t.id === techId);
-                                                return (
-                                                  <a
-                                                    key={techId}
-                                                    href={`https://attack.mitre.org/techniques/${techId.replace('.', '/')}/`}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-border hover:border-primary/30 hover:bg-muted/50 transition-colors"
-                                                  >
-                                                    <code className="text-xs font-mono text-red-600">{techId}</code>
-                                                    {technique && (
-                                                      <span className="text-xs text-muted-foreground">{technique.name}</span>
-                                                    )}
+                                            <div className="flex flex-wrap gap-1">
+                                              {strategy.techniques.map(techId => (
+                                                <a
+                                                  key={techId}
+                                                  href={`https://attack.mitre.org/techniques/${techId.replace('.', '/')}/`}
+                                                  target="_blank"
+                                                  rel="noopener noreferrer"
+                                                >
+                                                  <Badge variant="outline" className="text-xs hover:bg-muted/50 transition-colors">
+                                                    <code className="text-red-600 mr-1">{techId}</code>
                                                     <ExternalLink className="w-3 h-3 text-muted-foreground" />
-                                                  </a>
-                                                );
-                                              })}
+                                                  </Badge>
+                                                </a>
+                                              ))}
                                             </div>
                                           </div>
                                         )}
@@ -959,42 +954,39 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                                           <p className="text-sm text-foreground">{analytic.description}</p>
                                         </div>
 
-                                        {analytic.platforms.length > 0 && (
-                                          <div>
-                                            <h5 className="text-sm font-medium text-muted-foreground mb-2">Platforms</h5>
-                                            <div className="flex flex-wrap gap-1">
-                                              {analytic.platforms.map(p => (
-                                                <Badge key={p} variant="outline" className="text-xs">{p}</Badge>
-                                              ))}
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                          {analytic.platforms.length > 0 && (
+                                            <div>
+                                              <h5 className="text-sm font-medium text-muted-foreground mb-2">Platforms</h5>
+                                              <div className="flex flex-wrap gap-1">
+                                                {analytic.platforms.map(p => (
+                                                  <Badge key={p} variant="outline" className="text-xs">{p}</Badge>
+                                                ))}
+                                              </div>
                                             </div>
-                                          </div>
-                                        )}
+                                          )}
 
-                                        {strategy.techniques.length > 0 && (
-                                          <div>
-                                            <h5 className="text-sm font-medium text-muted-foreground mb-2">Techniques</h5>
-                                            <div className="flex flex-wrap gap-2">
-                                              {strategy.techniques.map(techId => {
-                                                const technique = techniques.find(t => t.id === techId);
-                                                return (
+                                          {strategy.techniques.length > 0 && (
+                                            <div>
+                                              <h5 className="text-sm font-medium text-muted-foreground mb-2">Techniques</h5>
+                                              <div className="flex flex-wrap gap-1">
+                                                {strategy.techniques.map(techId => (
                                                   <a
                                                     key={techId}
                                                     href={`https://attack.mitre.org/techniques/${techId.replace('.', '/')}/`}
                                                     target="_blank"
                                                     rel="noopener noreferrer"
-                                                    className="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-border hover:border-primary/30 hover:bg-muted/50 transition-colors"
                                                   >
-                                                    <code className="text-xs font-mono text-red-600">{techId}</code>
-                                                    {technique && (
-                                                      <span className="text-xs text-muted-foreground">{technique.name}</span>
-                                                    )}
-                                                    <ExternalLink className="w-3 h-3 text-muted-foreground" />
+                                                    <Badge variant="outline" className="text-xs hover:bg-muted/50 transition-colors">
+                                                      <code className="text-red-600 mr-1">{techId}</code>
+                                                      <ExternalLink className="w-3 h-3 text-muted-foreground" />
+                                                    </Badge>
                                                   </a>
-                                                );
-                                              })}
+                                                ))}
+                                              </div>
                                             </div>
-                                          </div>
-                                        )}
+                                          )}
+                                        </div>
 
                                         <div>
                                           <h5 className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-2">
