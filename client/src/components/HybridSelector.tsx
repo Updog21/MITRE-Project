@@ -124,9 +124,12 @@ export function HybridSelector({
 
   const handleSave = () => {
     const values = Array.from(selectedPlatforms);
-    if (values.length > 0) {
-      updateMutation.mutate({ values });
-    }
+    updateMutation.mutate({ values });
+  };
+  
+  const handleClearAndSave = () => {
+    setSelectedPlatforms(new Set());
+    updateMutation.mutate({ values: [] });
   };
 
   const handleClear = () => {
@@ -227,21 +230,21 @@ export function HybridSelector({
         )}
 
         <div className="flex gap-2 pt-2">
-          {selectedPlatforms.size > 0 && (
+          {(currentValues && currentValues.length > 0) && (
             <Button
               variant="secondary"
               size="sm"
-              onClick={handleClear}
+              onClick={handleClearAndSave}
               disabled={updateMutation.isPending || isLoading}
               data-testid="button-clear-selector"
             >
-              Clear All
+              Clear All & Re-run
             </Button>
           )}
           <Button
             size="sm"
             onClick={handleSave}
-            disabled={selectedPlatforms.size === 0 || updateMutation.isPending || isLoading || !hasChanges}
+            disabled={updateMutation.isPending || isLoading || !hasChanges}
             className="flex-1"
             data-testid="button-save-selector"
           >

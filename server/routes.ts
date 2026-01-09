@@ -376,8 +376,8 @@ export async function registerRoutes(
         return res.status(400).json({ error: "hybridSelectorType is required" });
       }
       
-      if (!Array.isArray(hybridSelectorValues) || hybridSelectorValues.length === 0) {
-        return res.status(400).json({ error: "hybridSelectorValues must be a non-empty array of platform names" });
+      if (!Array.isArray(hybridSelectorValues)) {
+        return res.status(400).json({ error: "hybridSelectorValues must be an array of platform names" });
       }
       
       // Normalize legacy asset types - reject with error
