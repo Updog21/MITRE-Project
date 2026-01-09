@@ -787,3 +787,55 @@ export function getTechniquesFromStrategies(strategies: DetectionStrategy[]): Te
   
   return techniques.filter(t => techIds.has(t.id));
 }
+
+export interface CTIDAnalyticMatch {
+  analytic: AnalyticItem;
+  strategy: DetectionStrategy;
+  dataComponentRefs: DataComponentRef[];
+}
+
+export function getCTIDAnalyticsForTechniques(
+  techniqueIds: string[],
+  platforms: string[]
+): CTIDAnalyticMatch[] {
+  const matches: CTIDAnalyticMatch[] = [];
+  const seenAnalytics = new Set<string>();
+  
+  const normalizedPlatforms = platforms.map(p => p.toLowerCase());
+  
+  const matchingStrategies = detectionStrategies.filter(ds =>
+    ds.techniques.some(t => {
+      const baseTech = t.split('.')[0];
+      return techniqueIds.includes(t) || techniqueIds.includes(baseTech) ||
+        techniqueIds.some(tid => tid.split('.')[0] === baseTech);
+    })
+  );
+  
+  matchingStrategies.forEach(strategy => {
+    strategy.analytics.forEach(analytic => {
+      if (seenAnalytics.has(analytic.id)) return;
+      
+      const analyticPlatformsLower = analytic.platforms.map(p => p.toLowerCase());
+      const platformMatch = normalizedPlatforms.some(np =>
+        analyticPlatformsLower.some(ap => 
+          ap.includes(np) || np.includes(ap)
+        )
+      );
+      
+      if (platformMatch) {
+        seenAnalytics.add(analytic.id);
+        const dcRefs = analytic.dataComponents
+          .map(dcId => dataComponents[dcId])
+          .filter((dc): dc is DataComponentRef => dc !== undefined && dc !== null);
+        
+        matches.push({
+          analytic,
+          strategy,
+          dataComponentRefs: dcRefs
+        });
+      }
+    });
+  });
+  
+  return matches;
+}

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Asset, getDetectionStrategiesForProduct, dataComponents, techniques, DetectionStrategy, AnalyticItem, DataComponentRef, mitreAssets, MitreAsset } from '@/lib/mitreData';
+import { Asset, getDetectionStrategiesForProduct, dataComponents, techniques, DetectionStrategy, AnalyticItem, DataComponentRef, mitreAssets, MitreAsset, getCTIDAnalyticsForTechniques, CTIDAnalyticMatch } from '@/lib/mitreData';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { 
@@ -919,107 +919,241 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                             </h4>
                             
                             <div className="space-y-3">
-                              {strategy.analytics.map((analytic) => {
-                                const isAnalyticExpanded = expandedAnalytics.has(`community-${analytic.id}`);
-                                const analyticDataComponents = analytic.dataComponents
-                                  .map(dcId => stixDataComponents.find(dc => dc.id === dcId))
-                                  .filter(Boolean);
+                              {(() => {
+                                const ctidMatches = getCTIDAnalyticsForTechniques(strategy.techniques, allPlatforms);
+                                
+                                if (ctidMatches.length > 0) {
+                                  return ctidMatches.map((match) => {
+                                    const isAnalyticExpanded = expandedAnalytics.has(`community-ctid-${match.analytic.id}`);
+                                    const logSources = getLogSourcesForAnalytic(match.analytic);
+                                    const mutableElements = getMutableElementsForAnalytic(match.analytic);
 
-                                return (
-                                  <div key={`community-${analytic.id}`} className="border border-border rounded-md overflow-hidden bg-background">
-                                    <button
-                                      onClick={() => toggleAnalytic(`community-${analytic.id}`)}
-                                      className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-muted/30 transition-colors"
-                                      data-testid={`button-expand-community-analytic-${analytic.id}`}
-                                    >
-                                      <ChevronRight className={cn(
-                                        "w-4 h-4 text-muted-foreground transition-transform flex-shrink-0",
-                                        isAnalyticExpanded && "rotate-90"
-                                      )} />
-                                      <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-2">
-                                          <code className="text-xs text-primary font-mono">{analytic.id}</code>
-                                          <span className="font-medium text-foreground">{analytic.name}</span>
-                                        </div>
+                                    return (
+                                      <div key={`community-ctid-${match.analytic.id}`} className="border border-border rounded-md overflow-hidden bg-background">
+                                        <button
+                                          onClick={() => toggleAnalytic(`community-ctid-${match.analytic.id}`)}
+                                          className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-muted/30 transition-colors"
+                                          data-testid={`button-expand-community-analytic-${match.analytic.id}`}
+                                        >
+                                          <ChevronRight className={cn(
+                                            "w-4 h-4 text-muted-foreground transition-transform flex-shrink-0",
+                                            isAnalyticExpanded && "rotate-90"
+                                          )} />
+                                          <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2">
+                                              <code className="text-xs text-primary font-mono">{match.analytic.id}</code>
+                                              <span className="font-medium text-foreground">{match.analytic.name}</span>
+                                            </div>
+                                          </div>
+                                          <Badge variant="outline" className="text-xs">
+                                            {logSources.length} Log Sources
+                                          </Badge>
+                                        </button>
+
+                                        {isAnalyticExpanded && (
+                                          <div className="px-4 pb-4 pt-2 border-t border-border space-y-5">
+                                            <div>
+                                              <h5 className="text-sm font-medium text-muted-foreground mb-2">Description</h5>
+                                              <p className="text-sm text-foreground">{match.analytic.description}</p>
+                                            </div>
+
+                                            {match.strategy.techniques.length > 0 && (
+                                              <div>
+                                                <h5 className="text-sm font-medium text-muted-foreground mb-2">Techniques</h5>
+                                                <div className="flex flex-wrap gap-1">
+                                                  {match.strategy.techniques.map(techId => (
+                                                    <a
+                                                      key={techId}
+                                                      href={`https://attack.mitre.org/techniques/${techId.replace('.', '/')}/`}
+                                                      target="_blank"
+                                                      rel="noopener noreferrer"
+                                                    >
+                                                      <Badge variant="outline" className="text-xs hover:bg-muted/50 transition-colors">
+                                                        <code className="text-red-600 mr-1">{techId}</code>
+                                                        <ExternalLink className="w-3 h-3 text-muted-foreground" />
+                                                      </Badge>
+                                                    </a>
+                                                  ))}
+                                                </div>
+                                              </div>
+                                            )}
+
+                                            <div>
+                                              <h5 className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-2">
+                                                <Database className="w-4 h-4" />
+                                                Log Sources
+                                              </h5>
+                                              <div className="border border-border rounded-md overflow-hidden">
+                                                <table className="w-full text-sm">
+                                                  <thead className="bg-muted/50">
+                                                    <tr>
+                                                      <th className="text-left px-3 py-2 font-medium text-muted-foreground">Data Component</th>
+                                                      <th className="text-left px-3 py-2 font-medium text-muted-foreground">Name</th>
+                                                      <th className="text-left px-3 py-2 font-medium text-muted-foreground">Channel</th>
+                                                    </tr>
+                                                  </thead>
+                                                  <tbody className="divide-y divide-border">
+                                                    {logSources.map((row, idx) => (
+                                                      <tr key={`${row.dataComponentId}-${idx}`}>
+                                                        <td className="px-3 py-2">
+                                                          <button
+                                                            onClick={() => {
+                                                              const dc = dataComponents[row.dataComponentId];
+                                                              if (dc) setSelectedDataComponent(dc);
+                                                            }}
+                                                            className="text-primary hover:underline text-left"
+                                                            data-testid={`button-view-dc-community-${row.dataComponentId}`}
+                                                          >
+                                                            {row.dataComponentName}
+                                                            <span className="text-muted-foreground ml-1">({row.dataComponentId})</span>
+                                                          </button>
+                                                        </td>
+                                                        <td className="px-3 py-2 font-mono text-foreground">{row.logSourceName}</td>
+                                                        <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{row.channel}</td>
+                                                      </tr>
+                                                    ))}
+                                                    {logSources.length === 0 && (
+                                                      <tr>
+                                                        <td colSpan={3} className="px-3 py-2 text-muted-foreground italic">No log sources defined for this platform</td>
+                                                      </tr>
+                                                    )}
+                                                  </tbody>
+                                                </table>
+                                              </div>
+                                            </div>
+
+                                            {mutableElements.length > 0 && (
+                                              <div>
+                                                <h5 className="text-sm font-medium text-muted-foreground mb-2">Mutable Elements</h5>
+                                                <div className="border border-border rounded-md overflow-hidden">
+                                                  <table className="w-full text-sm">
+                                                    <thead className="bg-muted/50">
+                                                      <tr>
+                                                        <th className="text-left px-3 py-2 font-medium text-muted-foreground w-48">Field</th>
+                                                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">Description</th>
+                                                      </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-border">
+                                                      {mutableElements.map(me => (
+                                                        <tr key={me.field}>
+                                                          <td className="px-3 py-2 font-mono text-primary">{me.field}</td>
+                                                          <td className="px-3 py-2 text-foreground">{me.description}</td>
+                                                        </tr>
+                                                      ))}
+                                                    </tbody>
+                                                  </table>
+                                                </div>
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
                                       </div>
-                                      <Badge variant="outline" className="text-xs">
-                                        {analyticDataComponents.length} Data Components
-                                      </Badge>
-                                    </button>
+                                    );
+                                  });
+                                }
+                                
+                                return strategy.analytics.map((analytic) => {
+                                  const isAnalyticExpanded = expandedAnalytics.has(`community-${analytic.id}`);
+                                  const analyticDataComponents = analytic.dataComponents
+                                    .map(dcId => stixDataComponents.find(dc => dc.id === dcId))
+                                    .filter(Boolean);
 
-                                    {isAnalyticExpanded && (
-                                      <div className="px-4 pb-4 pt-2 border-t border-border space-y-5">
-                                        <div>
-                                          <h5 className="text-sm font-medium text-muted-foreground mb-2">Description</h5>
-                                          <p className="text-sm text-foreground">{analytic.description}</p>
+                                  return (
+                                    <div key={`community-${analytic.id}`} className="border border-border rounded-md overflow-hidden bg-background">
+                                      <button
+                                        onClick={() => toggleAnalytic(`community-${analytic.id}`)}
+                                        className="w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-muted/30 transition-colors"
+                                        data-testid={`button-expand-community-analytic-${analytic.id}`}
+                                      >
+                                        <ChevronRight className={cn(
+                                          "w-4 h-4 text-muted-foreground transition-transform flex-shrink-0",
+                                          isAnalyticExpanded && "rotate-90"
+                                        )} />
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center gap-2">
+                                            <code className="text-xs text-primary font-mono">{analytic.id}</code>
+                                            <span className="font-medium text-foreground">{analytic.name}</span>
+                                          </div>
                                         </div>
+                                        <Badge variant="outline" className="text-xs">
+                                          {analyticDataComponents.length} Data Components
+                                        </Badge>
+                                      </button>
 
-                                        {analytic.platforms.length > 0 && (
+                                      {isAnalyticExpanded && (
+                                        <div className="px-4 pb-4 pt-2 border-t border-border space-y-5">
                                           <div>
-                                            <h5 className="text-sm font-medium text-muted-foreground mb-2">Platforms</h5>
-                                            <div className="flex flex-wrap gap-1">
-                                              {analytic.platforms.map(p => (
-                                                <Badge key={p} variant="outline" className="text-xs">{p}</Badge>
-                                              ))}
-                                            </div>
+                                            <h5 className="text-sm font-medium text-muted-foreground mb-2">Description</h5>
+                                            <p className="text-sm text-foreground">{analytic.description}</p>
                                           </div>
-                                        )}
 
-                                        {strategy.techniques.length > 0 && (
-                                          <div>
-                                            <h5 className="text-sm font-medium text-muted-foreground mb-2">Techniques</h5>
-                                            <div className="flex flex-wrap gap-1">
-                                              {strategy.techniques.map(techId => (
-                                                <a
-                                                  key={techId}
-                                                  href={`https://attack.mitre.org/techniques/${techId.replace('.', '/')}/`}
-                                                  target="_blank"
-                                                  rel="noopener noreferrer"
-                                                >
-                                                  <Badge variant="outline" className="text-xs hover:bg-muted/50 transition-colors">
-                                                    <code className="text-red-600 mr-1">{techId}</code>
-                                                    <ExternalLink className="w-3 h-3 text-muted-foreground" />
-                                                  </Badge>
-                                                </a>
-                                              ))}
-                                            </div>
-                                          </div>
-                                        )}
-
-                                        <div>
-                                          <h5 className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-2">
-                                            <Database className="w-4 h-4" />
-                                            Data Components
-                                          </h5>
-                                          <div className="border border-border rounded-md overflow-hidden">
-                                            <table className="w-full text-sm">
-                                              <thead className="bg-muted/50">
-                                                <tr>
-                                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Data Component</th>
-                                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Data Source</th>
-                                                </tr>
-                                              </thead>
-                                              <tbody className="divide-y divide-border">
-                                                {analyticDataComponents.map((dc, idx) => (
-                                                  <tr key={idx}>
-                                                    <td className="px-3 py-2 text-foreground">{dc?.name || 'Unknown'}</td>
-                                                    <td className="px-3 py-2 text-muted-foreground">{dc?.dataSource || '-'}</td>
-                                                  </tr>
+                                          {analytic.platforms.length > 0 && (
+                                            <div>
+                                              <h5 className="text-sm font-medium text-muted-foreground mb-2">Platforms</h5>
+                                              <div className="flex flex-wrap gap-1">
+                                                {analytic.platforms.map(p => (
+                                                  <Badge key={p} variant="outline" className="text-xs">{p}</Badge>
                                                 ))}
-                                                {analyticDataComponents.length === 0 && (
+                                              </div>
+                                            </div>
+                                          )}
+
+                                          {strategy.techniques.length > 0 && (
+                                            <div>
+                                              <h5 className="text-sm font-medium text-muted-foreground mb-2">Techniques</h5>
+                                              <div className="flex flex-wrap gap-1">
+                                                {strategy.techniques.map(techId => (
+                                                  <a
+                                                    key={techId}
+                                                    href={`https://attack.mitre.org/techniques/${techId.replace('.', '/')}/`}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                  >
+                                                    <Badge variant="outline" className="text-xs hover:bg-muted/50 transition-colors">
+                                                      <code className="text-red-600 mr-1">{techId}</code>
+                                                      <ExternalLink className="w-3 h-3 text-muted-foreground" />
+                                                    </Badge>
+                                                  </a>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          )}
+
+                                          <div>
+                                            <h5 className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-2">
+                                              <Database className="w-4 h-4" />
+                                              Data Components
+                                            </h5>
+                                            <div className="border border-border rounded-md overflow-hidden">
+                                              <table className="w-full text-sm">
+                                                <thead className="bg-muted/50">
                                                   <tr>
-                                                    <td colSpan={2} className="px-3 py-2 text-muted-foreground italic">No data components defined</td>
+                                                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Data Component</th>
+                                                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Data Source</th>
                                                   </tr>
-                                                )}
-                                              </tbody>
-                                            </table>
+                                                </thead>
+                                                <tbody className="divide-y divide-border">
+                                                  {analyticDataComponents.map((dc, idx) => (
+                                                    <tr key={idx}>
+                                                      <td className="px-3 py-2 text-foreground">{dc?.name || 'Unknown'}</td>
+                                                      <td className="px-3 py-2 text-muted-foreground">{dc?.dataSource || '-'}</td>
+                                                    </tr>
+                                                  ))}
+                                                  {analyticDataComponents.length === 0 && (
+                                                    <tr>
+                                                      <td colSpan={2} className="px-3 py-2 text-muted-foreground italic">No data components defined</td>
+                                                    </tr>
+                                                  )}
+                                                </tbody>
+                                              </table>
+                                            </div>
                                           </div>
                                         </div>
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
+                                      )}
+                                    </div>
+                                  );
+                                });
+                              })()}
                             </div>
                           </div>
                         </div>
