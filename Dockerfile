@@ -15,7 +15,10 @@ FROM node:20-alpine AS production
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci --only=production
+COPY drizzle.config.ts ./
+COPY shared ./shared
+
+RUN npm ci
 
 COPY --from=builder /app/dist ./dist
 
