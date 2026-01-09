@@ -418,23 +418,46 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                   Mapped Data Components
                 </h3>
                 <p className="text-sm text-muted-foreground mb-3">
-                  This asset provides the following telemetry sources:
+                  {autoMapping.enrichedMapping?.dataComponents?.length 
+                    ? "Data components derived from platform selection and community mappings:"
+                    : "This asset provides the following telemetry sources:"}
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  {product.dataComponentIds.map(dcId => {
-                    const dc = dataComponents[dcId];
-                    return dc ? (
+                  {(() => {
+                    const enrichedDcs = autoMapping.enrichedMapping?.dataComponents || [];
+                    const staticDcs = product.dataComponentIds.map(dcId => dataComponents[dcId]).filter(Boolean);
+                    
+                    const allDcs = enrichedDcs.length > 0 ? enrichedDcs : staticDcs;
+                    
+                    if (allDcs.length === 0) {
+                      return (
+                        <span className="text-sm text-muted-foreground italic">
+                          Select platforms above to populate data components
+                        </span>
+                      );
+                    }
+                    
+                    return allDcs.map(dc => (
                       <button
-                        key={dcId}
-                        onClick={() => setSelectedDataComponent(dc)}
+                        key={dc.id}
+                        onClick={() => {
+                          const fullDc = dataComponents[dc.id] || {
+                            id: dc.id,
+                            name: dc.name,
+                            dataSource: dc.dataSource || '',
+                            logSources: [],
+                            mutableElements: [],
+                          };
+                          setSelectedDataComponent(fullDc as any);
+                        }}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-muted/50 hover:bg-muted hover:border-primary/30 transition-colors text-sm"
-                        data-testid={`button-dc-chip-${dcId}`}
+                        data-testid={`button-dc-chip-${dc.id}`}
                       >
-                        <code className="text-xs text-primary font-mono">{dcId}</code>
+                        <code className="text-xs text-primary font-mono">{dc.id}</code>
                         <span className="text-foreground">{dc.name}</span>
                       </button>
-                    ) : null;
-                  })}
+                    ));
+                  })()}
                 </div>
               </div>
             </div>
@@ -532,11 +555,6 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                           <Badge variant="secondary" className="text-xs">
                             {strategy.analytics.length} Analytics
                           </Badge>
-                          {strategy.techniques.slice(0, 2).map(t => (
-                            <Badge key={t} className="bg-red-100 text-red-700 border-red-200 font-mono text-xs">
-                              {t}
-                            </Badge>
-                          ))}
                         </div>
                       </button>
 
@@ -732,11 +750,6 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                           <Badge variant="secondary" className="text-xs">
                             {strategy.analytics.length} Analytics
                           </Badge>
-                          {strategy.techniques.slice(0, 2).map(t => (
-                            <Badge key={t} className="bg-red-100 text-red-700 border-red-200 font-mono text-xs">
-                              {t}
-                            </Badge>
-                          ))}
                         </div>
                       </button>
 
