@@ -396,7 +396,7 @@ export function ProductView({ product, onBack }: ProductViewProps) {
     return techniques.filter(t => techIds.has(t.id));
   }, [filteredStrategies, filteredCommunityStrategies]);
 
-  const coverageScore = Math.min(100, totalAnalytics * 15 + filteredStrategies.length * 10);
+  const coverageScore = Math.min(100, (totalAnalytics + communityAnalyticsCount) * 15 + (filteredStrategies.length + communityStrategiesCount) * 10);
 
   const toggleStrategy = (id: string) => {
     setExpandedStrategies(prev => {
@@ -796,8 +796,8 @@ export function ProductView({ product, onBack }: ProductViewProps) {
             </div>
             
             {showSourceFilter && availableSources.length > 0 && (
-              <div className="mb-4 p-3 border border-border rounded-lg bg-muted/30 flex flex-wrap gap-2 items-center">
-                <span className="text-sm text-muted-foreground mr-2">Show from:</span>
+              <div className="mb-4 flex flex-wrap gap-2 items-center">
+                <span className="text-sm text-muted-foreground mr-1">Show from:</span>
                 {(['sigma', 'elastic', 'splunk', 'ctid'] as ResourceType[]).filter(s => availableSources.includes(s)).map(source => {
                   const isActive = sourceFilters.has(source);
                   const sourceConfig = RESOURCE_LABELS[source];
@@ -816,7 +816,7 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                         setSourceFilters(newFilters);
                       }}
                       className={cn(
-                        "text-xs",
+                        "text-xs h-7",
                         isActive && source === 'sigma' && "bg-purple-600 hover:bg-purple-700",
                         isActive && source === 'elastic' && "bg-orange-600 hover:bg-orange-700",
                         isActive && source === 'splunk' && "bg-green-600 hover:bg-green-700",
