@@ -17,6 +17,7 @@ WORKDIR /app
 COPY package*.json ./
 COPY drizzle.config.ts ./
 COPY shared ./shared
+COPY scripts ./scripts
 
 RUN npm ci
 
