@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Loader2, RefreshCw, Check, Settings2, AlertTriangle, Monitor, Terminal, Cloud, Server, Globe, Box, Network, Shield, Database } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ctidMappedProducts } from '@/lib/v18Data';
 
 interface HybridSelectorOption {
   label: string;
@@ -41,16 +42,39 @@ async function fetchHybridOptions(): Promise<HybridSelectorOption[]> {
   return response.json();
 }
 
-async function updateProductHybridSelector(
+async function updateProductHybridSelector(a
   productId: string,
   selectorType: string,
   selectorValues: string[]
 ): Promise<void> {
-  const response = await fetch(`/api/products/${productId}/hybrid-selector`, {
+  let response = await fetch(`/api/products/${productId}/hybrid-selector`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ hybridSelectorType: selectorType, hybridSelectorValues: selectorValues }),
   });
+
+  // If the product doesn't exist in the backend (404), try to seed it from our static definition
+  if (response.status === 404) {
+    const staticProduct = ctidMappedProducts.find(p => p.id === productId);
+    if (staticProduct) {
+      console.log(`Product ${productId} missing in backend. Attempting to seed...`);
+      const createResponse = await fetch('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(staticProduct),
+      });
+      
+      if (createResponse.ok) {
+        // Retry the original update request
+        response = await fetch(`/api/products/${productId}/hybrid-selector`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hybridSelectorType: selectorType, hybridSelectorValues: selectorValues }),
+        });
+      }
+    }
+  }
+
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(`Failed to update product hybrid selector: ${errorText}`);
