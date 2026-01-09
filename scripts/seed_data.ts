@@ -25,11 +25,10 @@ async function seedDatabase() {
     const dcDataValues = Object.values(dcData).map(dc => ({
       componentId: dc.id,
       name: dc.name,
-      dataSourceId: dc.dataSourceId,
-      dataSourceName: dc.dataSourceName,
+      dataSourceName: dc.dataSource,
       description: dc.description,
-      dataCollectionMeasures: dc.dataCollectionMeasures,
-      logSources: dc.logSources,
+      dataCollectionMeasures: dc.dataCollectionMeasures?.map(m => `${m.platform}: ${m.description}`) || [],
+      logSources: dc.logSources || [],
     }));
     
     await db.insert(dataComponents).values(dcDataValues).onConflictDoNothing();
@@ -55,9 +54,9 @@ async function seedDatabase() {
         name: analytic.name,
         description: analytic.description,
         pseudocode: analytic.pseudocode,
-        dataComponentIds: analytic.dataComponentIds,
-        logSources: analytic.logSources,
-        mutableElements: analytic.mutableElements,
+        dataComponentIds: analytic.dataComponents,
+        logSources: [],
+        mutableElements: [],
       }))
     );
     
