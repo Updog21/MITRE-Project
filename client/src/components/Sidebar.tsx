@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'wouter';
-import { Shield, LayoutDashboard, Cpu, Settings, Activity, Database, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Shield, LayoutDashboard, Cpu, Settings, Activity, Database, ChevronLeft, ChevronRight, Wrench } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 
@@ -8,6 +8,10 @@ const navItems = [
   { href: '/ai-mapper', label: 'AI Auto-Mapper', icon: Cpu },
   { href: '/products', label: 'Security Stack', icon: Database },
   { href: '/threats', label: 'Threat Groups', icon: Activity },
+];
+
+const docItems = [
+  { href: '/admin', label: 'Admin Tasks', icon: Wrench },
 ];
 
 export function Sidebar() {
@@ -36,7 +40,7 @@ export function Sidebar() {
         </Link>
       </div>
 
-      <nav className="flex-1 p-3 space-y-1">
+      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
           const isActive = location === item.href;
           return (
@@ -46,8 +50,43 @@ export function Sidebar() {
               data-testid={`link-nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
               className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group",
-                isActive 
-                  ? "bg-primary/15 text-primary border border-primary/30" 
+                isActive
+                  ? "bg-primary/15 text-primary border border-primary/30"
+                  : "text-muted-foreground hover:text-foreground hover:bg-accent"
+              )}
+            >
+              <item.icon className={cn(
+                "w-5 h-5 transition-colors",
+                isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
+              )} />
+              {!collapsed && (
+                <span className="font-medium text-sm">{item.label}</span>
+              )}
+            </Link>
+          );
+        })}
+
+        {/* Documentation Section */}
+        {!collapsed && (
+          <div className="pt-4 pb-2">
+            <p className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              Documentation
+            </p>
+          </div>
+        )}
+        {collapsed && <div className="h-4" />}
+
+        {docItems.map((item) => {
+          const isActive = location === item.href;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              data-testid={`link-nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+              className={cn(
+                "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group",
+                isActive
+                  ? "bg-primary/15 text-primary border border-primary/30"
                   : "text-muted-foreground hover:text-foreground hover:bg-accent"
               )}
             >

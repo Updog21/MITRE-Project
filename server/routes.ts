@@ -1,10 +1,11 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertProductSchema, insertDataComponentSchema, insertDetectionStrategySchema, insertAnalyticSchema, insertMitreAssetSchema } from "@shared/schema";
+import { insertProductSchema, insertDataComponentSchema, insertDetectionStrategySchema, insertAnalyticSchema, insertMitreAssetSchema, insertProductAliasSchema } from "@shared/schema";
 import { fromZodError } from "zod-validation-error";
 import { runAutoMapper, getMappingStatus, getAllProductMappings, RESOURCE_PRIORITY } from "./auto-mapper";
 import { mitreKnowledgeGraph } from "./mitre-stix";
+import { productService } from "./services";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -322,8 +323,6 @@ export async function registerRoutes(
   // Hybrid Selector endpoints
   
   // Get hybrid selector options (master list)
-  // Note: Enterprise ATT&CK uses platforms (x_mitre_platforms), not assets
-  // Asset targeting relationships are primarily in ICS ATT&CK
   app.get("/api/hybrid-selector/options", async (req, res) => {
     const options = [
       { label: "Windows Endpoint", type: "platform", value: "Windows" },
@@ -341,7 +340,6 @@ export async function registerRoutes(
   });
 
   // Get techniques by hybrid selector
-  // Note: Only platform types are supported (Enterprise ATT&CK has no asset objects)
   app.post("/api/mitre-stix/techniques/by-selector", async (req, res) => {
     try {
       await mitreKnowledgeGraph.ensureInitialized();
@@ -351,10 +349,9 @@ export async function registerRoutes(
         return res.status(400).json({ error: "selectorType and selectorValue are required" });
       }
       
-      // Only platform type is supported in Enterprise ATT&CK
       if (selectorType !== 'platform') {
         return res.status(400).json({ 
-          error: "Only 'platform' selectorType is supported (Enterprise ATT&CK does not contain asset objects)" 
+          error: "Only 'platform' selectorType is supported (Enterprise ATT&CK focus)" 
         });
       }
       
@@ -366,42 +363,252 @@ export async function registerRoutes(
     }
   });
 
-  // Update product hybrid selector (only platform type is supported, multi-select)
+  // Update product hybrid selector (platform type only, multi-select)
   app.patch("/api/products/:productId/hybrid-selector", async (req, res) => {
     try {
       const { productId } = req.params;
       let { hybridSelectorType, hybridSelectorValues } = req.body;
-      
+
       if (!hybridSelectorType) {
         return res.status(400).json({ error: "hybridSelectorType is required" });
       }
-      
+
       if (!Array.isArray(hybridSelectorValues)) {
         return res.status(400).json({ error: "hybridSelectorValues must be an array of platform names" });
       }
-      
-      // Normalize legacy asset types - reject with error
-      if (hybridSelectorType === 'asset') {
-        return res.status(400).json({ 
-          error: "Asset type is no longer supported. Please use a platform type instead." 
-        });
-      }
-      
-      // Validate it's a platform type
+
       if (hybridSelectorType !== 'platform') {
         return res.status(400).json({ error: "Only 'platform' type is supported" });
       }
-      
+
       const updated = await storage.updateProductHybridSelector(productId, hybridSelectorType, hybridSelectorValues);
-      
+
       if (!updated) {
         return res.status(404).json({ error: "Product not found" });
       }
-      
+
       res.json(updated);
     } catch (error) {
       console.error("Error updating product hybrid selector:", error);
       res.status(500).json({ error: "Failed to update product" });
+    }
+  });
+
+  // ============================================================
+  // Admin API Routes - Phase 2: Intelligence & Persistence
+  // ============================================================
+
+  // Get all products (with optional source filter)
+  app.get("/api/admin/products", async (req, res) => {
+    try {
+      const source = req.query.source as string | undefined;
+      if (source) {
+        const products = await productService.getProductsBySource(source);
+        res.json(products);
+      } else {
+        const products = await productService.getAllProducts();
+        res.json(products);
+      }
+    } catch (error) {
+      console.error("Error fetching products:", error);
+      res.status(500).json({ error: "Failed to fetch products" });
+    }
+  });
+
+  // Search products with alias resolution
+  app.get("/api/admin/products/search", async (req, res) => {
+    try {
+      const query = req.query.q as string;
+      const results = await productService.searchProducts(query || '');
+      res.json(results);
+    } catch (error) {
+      console.error("Error searching products:", error);
+      res.status(500).json({ error: "Failed to search products" });
+    }
+  });
+
+  // Resolve search terms for a product (for debugging/inspection)
+  app.get("/api/admin/products/resolve/:query", async (req, res) => {
+    try {
+      const { query } = req.params;
+      const resolved = await productService.resolveSearchTerms(query);
+      if (!resolved) {
+        return res.status(404).json({ error: "Could not resolve product" });
+      }
+      res.json(resolved);
+    } catch (error) {
+      console.error("Error resolving search terms:", error);
+      res.status(500).json({ error: "Failed to resolve search terms" });
+    }
+  });
+
+  // Create a custom product
+  app.post("/api/admin/products", async (req, res) => {
+    try {
+      const validation = insertProductSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ error: fromZodError(validation.error).toString() });
+      }
+
+      const product = await productService.createProduct(validation.data);
+      res.status(201).json(product);
+    } catch (error) {
+      console.error("Error creating product:", error);
+      res.status(500).json({ error: "Failed to create product" });
+    }
+  });
+
+  // Update a product
+  app.patch("/api/admin/products/:productId", async (req, res) => {
+    try {
+      const { productId } = req.params;
+      const updated = await productService.updateProduct(productId, req.body);
+
+      if (!updated) {
+        return res.status(404).json({ error: "Product not found" });
+      }
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating product:", error);
+      res.status(500).json({ error: "Failed to update product" });
+    }
+  });
+
+  // Delete a product
+  app.delete("/api/admin/products/:productId", async (req, res) => {
+    try {
+      const { productId } = req.params;
+      const deleted = await productService.deleteProduct(productId);
+
+      if (!deleted) {
+        return res.status(404).json({ error: "Product not found" });
+      }
+
+      res.json({ message: "Product deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting product:", error);
+      res.status(500).json({ error: "Failed to delete product" });
+    }
+  });
+
+  // ============================================================
+  // Alias Management Routes
+  // ============================================================
+
+  // Get all aliases
+  app.get("/api/admin/aliases", async (req, res) => {
+    try {
+      const aliases = await productService.getAllAliases();
+      res.json(aliases);
+    } catch (error) {
+      console.error("Error fetching aliases:", error);
+      res.status(500).json({ error: "Failed to fetch aliases" });
+    }
+  });
+
+  // Add a new alias (accepts productId or productName)
+  app.post("/api/admin/aliases", async (req, res) => {
+    try {
+      const { productId, productName, alias, confidence } = req.body;
+
+      if (!alias) {
+        return res.status(400).json({ error: "alias is required" });
+      }
+
+      if (!productId && !productName) {
+        return res.status(400).json({ error: "Either productId (number) or productName (string) is required" });
+      }
+
+      let newAlias;
+
+      if (typeof productId === 'number') {
+        // Use direct productId (integer FK)
+        newAlias = await productService.addAlias(productId, alias, confidence || 100);
+      } else if (productName) {
+        // Lookup product by name first
+        newAlias = await productService.addAliasByName(productName, alias, confidence || 100);
+        if (!newAlias) {
+          return res.status(404).json({ error: `Product "${productName}" not found` });
+        }
+      }
+
+      res.status(201).json(newAlias);
+    } catch (error) {
+      console.error("Error adding alias:", error);
+      res.status(500).json({ error: "Failed to add alias" });
+    }
+  });
+
+  // Bulk add aliases
+  app.post("/api/admin/aliases/bulk", async (req, res) => {
+    try {
+      const { aliases } = req.body;
+      if (!Array.isArray(aliases)) {
+        return res.status(400).json({ error: "Expected array of aliases" });
+      }
+
+      await productService.bulkAddAliases(aliases);
+      res.status(201).json({ message: "Aliases added successfully" });
+    } catch (error) {
+      console.error("Error bulk adding aliases:", error);
+      res.status(500).json({ error: "Failed to add aliases" });
+    }
+  });
+
+  // Delete an alias
+  app.delete("/api/admin/aliases/:aliasId", async (req, res) => {
+    try {
+      const aliasId = parseInt(req.params.aliasId, 10);
+
+      if (isNaN(aliasId)) {
+        return res.status(400).json({ error: "Invalid alias ID" });
+      }
+
+      const deleted = await productService.deleteAlias(aliasId);
+
+      if (!deleted) {
+        return res.status(404).json({ error: "Alias not found" });
+      }
+
+      res.json({ message: "Alias deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting alias:", error);
+      res.status(500).json({ error: "Failed to delete alias" });
+    }
+  });
+
+  // ============================================================
+  // Maintenance Routes
+  // ============================================================
+
+  // Get system status
+  app.get("/api/admin/status", async (req, res) => {
+    try {
+      const [products, aliases] = await Promise.all([
+        productService.getAllProducts(),
+        productService.getAllAliases()
+      ]);
+
+      const stixStats = mitreKnowledgeGraph.getStats();
+
+      res.json({
+        products: {
+          total: products.length,
+          bySource: {
+            ctid: products.filter(p => p.source === 'ctid').length,
+            custom: products.filter(p => p.source === 'custom').length,
+            'ai-pending': products.filter(p => p.source === 'ai-pending').length
+          }
+        },
+        aliases: aliases.length,
+        stix: stixStats,
+        sigmaPath: './data/sigma',
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error("Error getting system status:", error);
+      res.status(500).json({ error: "Failed to get system status" });
     }
   });
 

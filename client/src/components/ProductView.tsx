@@ -29,6 +29,7 @@ import { useAutoMappingWithAutoRun, RESOURCE_LABELS, ResourceType } from '@/hook
 import { Button } from '@/components/ui/button';
 import { Filter } from 'lucide-react';
 import { HybridSelector } from './HybridSelector';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface ProductViewProps {
   product: Asset;
@@ -243,6 +244,8 @@ export function ProductView({ product, onBack }: ProductViewProps) {
   const [selectedMitreAsset, setSelectedMitreAsset] = useState<MitreAsset | null>(null);
   const [sourceFilters, setSourceFilters] = useState<Set<ResourceType>>(() => new Set<ResourceType>(['ctid', 'sigma', 'elastic', 'splunk']));
   const [showSourceFilter, setShowSourceFilter] = useState(false);
+  const [showAllTechniques, setShowAllTechniques] = useState(false);
+  const [showAllDataComponents, setShowAllDataComponents] = useState(false);
   
   const platform = product.platforms[0];
   
@@ -372,14 +375,18 @@ export function ProductView({ product, onBack }: ProductViewProps) {
   const filteredCommunityStrategies = useMemo(() => {
     if (!autoMapping.enrichedMapping?.detectionStrategies) return [];
     const hasTechniqueSources = Object.keys(techniqueSources).length > 0;
+    
     return autoMapping.enrichedMapping.detectionStrategies.map(strategy => ({
       ...strategy,
+      // Filter analytics by platform, but keep the strategy even if analytics become empty
       analytics: strategy.analytics.filter(a => 
         platformMatchesAny(a.platforms, allPlatforms)
       )
-    })).filter(s => s.analytics.length > 0).filter(s => {
+    })).filter(s => {
+      // Filter by source (e.g. Sigma, Splunk) if filters are active
       if (!hasTechniqueSources) return true;
       const strategySources = getSourcesForStrategy(s);
+      // If the strategy has no sources (shouldn't happen for auto-mapped items), keep it
       if (strategySources.length === 0) return true;
       return strategySources.some(src => sourceFilters.has(src));
     });
@@ -392,10 +399,52 @@ export function ProductView({ product, onBack }: ProductViewProps) {
   
   const coveredTechniques = useMemo(() => {
     const techIds = new Set<string>();
+    
+    // Add techniques from static strategies
     filteredStrategies.forEach(s => s.techniques.forEach(t => techIds.add(t)));
+    
+    // Add techniques from community strategies (STIX enriched)
     filteredCommunityStrategies.forEach(s => s.techniques.forEach(t => techIds.add(t)));
-    return techniques.filter(t => techIds.has(t.id));
-  }, [filteredStrategies, filteredCommunityStrategies]);
+    
+    // Add all raw techniques found by auto-mapper (Sigma/Splunk), regardless of STIX mapping
+    if (autoMapping.enrichedMapping?.techniqueIds) {
+      autoMapping.enrichedMapping.techniqueIds.forEach(t => techIds.add(t));
+    }
+    
+    const dynamicNames = autoMapping.enrichedMapping?.techniqueNames || {};
+
+    return Array.from(techIds).map(id => {
+      const knownTech = techniques.find(t => t.id === id);
+      const dynamicName = dynamicNames[id.toUpperCase()];
+      
+      return knownTech || { 
+        id, 
+        name: dynamicName || id, // Prioritize dynamic name from STIX, fallback to ID
+        tactic: 'Unknown', 
+        description: '', 
+        usedByGroups: [], 
+        detectionStrategies: [] 
+      };
+    }).sort((a, b) => {
+      // Parse IDs like "T1562.001" -> main: 1562, sub: 1
+      const parseId = (id: string) => {
+        const cleanId = id.toUpperCase().replace('T', '');
+        const [main, sub] = cleanId.split('.').map(part => parseInt(part, 10));
+        return { main: isNaN(main) ? 0 : main, sub: isNaN(sub) ? 0 : sub };
+      };
+
+      const parsedA = parseId(a.id);
+      const parsedB = parseId(b.id);
+
+      // Descending sort by main ID
+      if (parsedB.main !== parsedA.main) {
+        return parsedB.main - parsedA.main;
+      }
+
+      // Descending sort by sub-technique ID
+      return parsedB.sub - parsedA.sub;
+    });
+  }, [filteredStrategies, filteredCommunityStrategies, autoMapping.enrichedMapping?.techniqueNames, autoMapping.enrichedMapping?.techniqueIds]);
 
   const coverageScore = Math.min(100, (totalAnalytics + communityAnalyticsCount) * 15 + (filteredStrategies.length + communityStrategiesCount) * 10);
 
@@ -416,6 +465,42 @@ export function ProductView({ product, onBack }: ProductViewProps) {
       return next;
     });
   };
+
+  const mappedDataComponents = useMemo(() => {
+    // Start with static data components
+    const staticDCs = product.dataComponentIds
+      .map(id => dataComponents[id])
+      .filter(Boolean);
+    
+    // Add dynamic data components from auto-mapping
+    const dynamicDCs = autoMapping.enrichedMapping?.dataComponents || [];
+    
+    // Combine and deduplicate by ID
+    const combined = [...staticDCs];
+    
+    dynamicDCs.forEach(dc => {
+      // Skip if already present by ID
+      if (combined.some(existing => existing.id === dc.id)) return;
+      
+      // Check if we have static metadata for this ID (now that IDs match)
+      const staticMeta = dataComponents[dc.id];
+      
+      if (staticMeta) {
+        combined.push(staticMeta);
+      } else {
+        // Fallback to dynamic DC data
+        combined.push({
+          id: dc.id,
+          name: dc.name,
+          dataSource: dc.dataSource,
+          description: 'Dynamically mapped data component',
+          mutableElements: [],
+          platforms: []
+        });
+      }
+    });
+    return combined;
+  }, [product.dataComponentIds, autoMapping.enrichedMapping?.dataComponents]);
 
   const tocItems = [
     { id: 'overview', label: 'Overview' },
@@ -484,6 +569,19 @@ export function ProductView({ product, onBack }: ProductViewProps) {
               </div>
             </div>
 
+            <div className="mt-6" id="hybrid-selector">
+              <HybridSelector
+                productId={product.id}
+                currentType={productData?.hybridSelectorType || null}
+                currentValues={productData?.hybridSelectorValues || null}
+                onRerun={() => {
+                  refetchProduct();
+                  autoMapping.triggerAutoRun();
+                }}
+                isLoading={autoMapping.isAutoRunning}
+              />
+            </div>
+
             <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div className="p-4 rounded-lg border border-border bg-card">
                 <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
@@ -522,46 +620,44 @@ export function ProductView({ product, onBack }: ProductViewProps) {
               </div>
 
               <div className="p-4 rounded-lg border border-border bg-card">
-                <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-                  <Database className="w-4 h-4 text-primary" />
-                  Mapped Data Components
-                </h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <Database className="w-4 h-4 text-primary" />
+                    Mapped Data Components
+                  </h3>
+                  {mappedDataComponents.length > 20 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowAllDataComponents(!showAllDataComponents)}
+                      className="text-xs h-7 text-muted-foreground hover:text-foreground"
+                    >
+                      {showAllDataComponents ? 'Show Less' : `Show All (${mappedDataComponents.length})`}
+                    </Button>
+                  )}
+                </div>
                 <p className="text-sm text-muted-foreground mb-3">
                   This asset provides the following telemetry sources:
                 </p>
-                <div className="flex flex-wrap gap-2">
-                  {product.dataComponentIds.map(dcId => {
-                    const dc = dataComponents[dcId];
-                    return dc ? (
-                      <button
-                        key={dcId}
-                        onClick={() => setSelectedDataComponent(dc)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-muted/50 hover:bg-muted hover:border-primary/30 transition-colors text-sm"
-                        data-testid={`button-dc-chip-${dcId}`}
-                      >
-                        <code className="text-xs text-primary font-mono">{dcId}</code>
-                        <span className="text-foreground">{dc.name}</span>
-                      </button>
-                    ) : null;
-                  })}
-                </div>
+                <ScrollArea className={cn("pr-4", !showAllDataComponents && "h-48")}>
+                  <div className="flex flex-wrap gap-2">
+                    {mappedDataComponents.map(dc => (
+                        <button
+                          key={dc.id}
+                          onClick={() => setSelectedDataComponent(dc)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-muted/50 hover:bg-muted hover:border-primary/30 transition-colors text-sm"
+                          data-testid={`button-dc-chip-${dc.id}`}
+                        >
+                          <code className="text-xs text-primary font-mono">{dc.id}</code>
+                          <span className="text-foreground">{dc.name}</span>
+                        </button>
+                      ))}
+                  </div>
+                </ScrollArea>
               </div>
             </div>
 
           </header>
-
-          <section className="mb-10" id="hybrid-selector">
-            <HybridSelector
-              productId={product.id}
-              currentType={productData?.hybridSelectorType || null}
-              currentValues={productData?.hybridSelectorValues || null}
-              onRerun={() => {
-                refetchProduct();
-                autoMapping.triggerAutoRun();
-              }}
-              isLoading={autoMapping.isAutoRunning}
-            />
-          </section>
 
           <section className="mb-10" id="coverage">
             <h2 className="text-xl font-semibold text-foreground mb-4">Coverage Summary</h2>
@@ -584,17 +680,33 @@ export function ProductView({ product, onBack }: ProductViewProps) {
 
               {coveredTechniques.length > 0 && (
                 <div className="pt-4 border-t border-border">
-                  <h4 className="text-sm font-medium text-foreground mb-3">Covered Techniques</h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-sm font-medium text-foreground">Covered Techniques</h4>
+                    {coveredTechniques.length > 20 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowAllTechniques(!showAllTechniques)}
+                        className="text-xs h-7 text-muted-foreground hover:text-foreground"
+                      >
+                        {showAllTechniques ? 'Show Less' : `Show All (${coveredTechniques.length})`}
+                      </Button>
+                    )}
+                  </div>
+                  
+                  <div className={cn(
+                    "grid grid-cols-1 sm:grid-cols-2 gap-2",
+                    !showAllTechniques && coveredTechniques.length > 20 ? "max-h-80 overflow-y-auto pr-2 custom-scrollbar" : ""
+                  )}>
                     {coveredTechniques.map(t => (
                       <a
                         key={t.id}
                         href={`https://attack.mitre.org/techniques/${t.id.replace('.', '/')}/`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center gap-2 p-2 rounded border border-border hover:border-primary/30 hover:bg-muted/50 transition-colors group"
+                        className="flex items-center gap-2 p-2 rounded border border-border hover:border-primary/30 hover:bg-muted/50 transition-colors group h-fit"
                       >
-                        <code className="text-xs font-mono text-red-600">{t.id}</code>
+                        <code className="text-xs font-mono text-red-600 flex-shrink-0">{t.id}</code>
                         <span className="text-sm text-muted-foreground group-hover:text-foreground transition-colors truncate">{t.name}</span>
                       </a>
                     ))}

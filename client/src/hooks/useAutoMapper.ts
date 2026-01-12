@@ -31,6 +31,7 @@ export interface EnrichedCommunityMapping {
   dataComponents: StixDataComponent[];
   communityAnalytics: AnalyticMapping[];
   techniqueSources: Record<string, ResourceType[]>;
+  techniqueNames: Record<string, string>;
 }
 
 export type ResourceType = 'ctid' | 'sigma' | 'elastic' | 'splunk' | 'mitre_stix';
@@ -111,28 +112,6 @@ export function useRunAutoMapper() {
   });
 }
 
-export interface HybridSelectorTechniques {
-  techniqueIds: string[];
-  count: number;
-  selectorType: 'platform';
-  selectorValue: string;
-}
-
-async function fetchTechniquesBySelector(
-  selectorType: 'platform',
-  selectorValue: string
-): Promise<{ techniqueIds: string[]; count: number }> {
-  const response = await fetch('/api/mitre-stix/techniques/by-selector', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ selectorType, selectorValue }),
-  });
-  if (!response.ok) {
-    throw new Error('Failed to fetch techniques by selector');
-  }
-  return response.json();
-}
-
 export function useAutoMappingWithAutoRun(
   productId: string, 
   platform?: string,
@@ -165,12 +144,10 @@ export function useAutoMappingWithAutoRun(
   const [stixMapping, setStixMapping] = useState<{
     detectionStrategies: StixDetectionStrategy[];
     dataComponents: StixDataComponent[];
+    techniqueNames: Record<string, string>;
   } | null>(null);
   const [stixLoading, setStixLoading] = useState(false);
   
-  const [hybridTechniques, setHybridTechniques] = useState<string[]>([]);
-  const [hybridLoading, setHybridLoading] = useState(false);
-
   const baseTechniqueIds = useMemo(() => {
     if (!rawData?.mapping || rawData.status !== 'matched') {
       return [];
@@ -185,41 +162,9 @@ export function useAutoMappingWithAutoRun(
     });
   }, [rawData]);
 
-  useEffect(() => {
-    if (!hybridSelectors || hybridSelectors.length === 0) {
-      setHybridTechniques([]);
-      return;
-    }
-
-    setHybridLoading(true);
-    
-    Promise.all(
-      hybridSelectors.map(platformValue => 
-        fetchTechniquesBySelector('platform', platformValue)
-          .then(data => data.techniqueIds)
-          .catch(err => {
-            console.error(`Failed to fetch techniques for ${platformValue}:`, err);
-            return [] as string[];
-          })
-      )
-    )
-      .then(allTechniqueArrays => {
-        const mergedTechniques = new Set<string>();
-        allTechniqueArrays.forEach(arr => arr.forEach(id => mergedTechniques.add(id)));
-        setHybridTechniques(Array.from(mergedTechniques));
-        setHybridLoading(false);
-      })
-      .catch(err => {
-        console.error('Failed to fetch hybrid techniques:', err);
-        setHybridLoading(false);
-      });
-  }, [hybridSelectors?.join(',')]);
-
   const combinedTechniqueIds = useMemo(() => {
-    const baseSet = new Set(baseTechniqueIds);
-    hybridTechniques.forEach((id: string) => baseSet.add(id));
-    return Array.from(baseSet);
-  }, [baseTechniqueIds, hybridTechniques]);
+    return baseTechniqueIds;
+  }, [baseTechniqueIds]);
 
   useEffect(() => {
     if (combinedTechniqueIds.length === 0) {
@@ -259,17 +204,18 @@ export function useAutoMappingWithAutoRun(
       dataComponents: stixMapping?.dataComponents || [],
       communityAnalytics: rawData.mapping.analytics,
       techniqueSources: rawData.mapping.techniqueSources || {},
+      techniqueNames: stixMapping?.techniqueNames || {},
     };
   }, [rawData, combinedTechniqueIds, stixMapping]);
 
   return {
     data: rawData,
     enrichedMapping,
-    isLoading: statusQuery.isLoading || autoRunMutation.isPending || stixLoading || hybridLoading,
+    isLoading: statusQuery.isLoading || autoRunMutation.isPending || stixLoading,
     isAutoRunning: autoRunMutation.isPending,
     isStixLoading: stixLoading,
-    isHybridLoading: hybridLoading,
-    hybridTechniques,
+    isHybridLoading: false,
+    hybridTechniques: [],
     baseTechniqueIds,
     combinedTechniqueIds,
     error: statusQuery.error || autoRunMutation.error,

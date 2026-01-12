@@ -76,8 +76,6 @@ export function HybridSelector({
   const queryClient = useQueryClient();
   const { data: options, isLoading: optionsLoading } = useHybridSelectorOptions();
   
-  const isLegacyAssetType = currentType === 'asset';
-  
   const [selectedPlatforms, setSelectedPlatforms] = useState<Set<string>>(
     new Set(currentValues || [])
   );
@@ -101,13 +99,13 @@ export function HybridSelector({
   });
 
   useEffect(() => {
-    if (currentValues && !isLegacyAssetType) {
+    if (currentValues) {
       setSelectedPlatforms(new Set(currentValues));
     } else {
       setSelectedPlatforms(new Set());
     }
     setHasChanges(false);
-  }, [currentValues, isLegacyAssetType]);
+  }, [currentValues]);
 
   const togglePlatform = (platform: string) => {
     setSelectedPlatforms(prev => {
@@ -130,11 +128,6 @@ export function HybridSelector({
   const handleClearAndSave = () => {
     setSelectedPlatforms(new Set());
     updateMutation.mutate({ values: [] });
-  };
-
-  const handleClear = () => {
-    setSelectedPlatforms(new Set());
-    setHasChanges(true);
   };
 
   if (optionsLoading) {
@@ -169,15 +162,6 @@ export function HybridSelector({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {isLegacyAssetType && (
-          <div className="flex items-center gap-2 p-3 rounded bg-yellow-500/10 border border-yellow-500/30">
-            <AlertTriangle className="w-5 h-5 text-yellow-500 flex-shrink-0" />
-            <p className="text-sm text-yellow-200">
-              Asset-based filtering is no longer supported. Please select platforms below.
-            </p>
-          </div>
-        )}
-        
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
           {options?.map((option) => {
             const isSelected = selectedPlatforms.has(option.value);

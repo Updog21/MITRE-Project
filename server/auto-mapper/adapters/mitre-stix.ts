@@ -154,7 +154,7 @@ export class MitreStixAdapter implements ResourceAdapter {
       confidence: Math.min(100, objects.length * 15),
       detectionStrategies: [],
       analytics,
-      dataComponents: [...new Map(dataComponents.map(dc => [dc.id, dc])).values()],
+      dataComponents: Array.from(new Map(dataComponents.map(dc => [dc.id, dc])).values()),
       rawData: objects,
     };
   }

@@ -116,9 +116,10 @@ export class MitreKnowledgeGraph {
   
   private techniqueToStrategies: Map<string, string[]> = new Map();
   private strategyToAnalytics: Map<string, string[]> = new Map();
+  private analyticToStrategies: Map<string, string[]> = new Map(); // Reverse lookup for Tier 2 inference
   private analyticToDataComponents: Map<string, string[]> = new Map();
-  private techniqueToAssets: Map<string, string[]> = new Map();
-  
+  private dataComponentToAnalytics: Map<string, string[]> = new Map(); // Reverse lookup for Tier 2 inference
+
   private techniqueToCarAnalytics: Map<string, CarAnalytic[]> = new Map();
   
   private initialized = false;
@@ -149,7 +150,6 @@ export class MitreKnowledgeGraph {
       console.log(`[-] Loaded ${stixBundle.objects.length} STIX objects`);
       
       this.buildIndexes(stixBundle);
-      this.buildAssetStixIdIndex(stixBundle);
       
       if (carResponse.ok) {
         const carData: CarData = await carResponse.json();
@@ -255,8 +255,9 @@ export class MitreKnowledgeGraph {
           break;
           
         case 'x-mitre-data-component':
+          const dcExternalId = this.getExternalId(stixObj);
           this.dataComponentMap.set(stixObj.id, {
-            id: stixObj.id,
+            id: dcExternalId || stixObj.id,
             stixId: stixObj.id,
             name: stixObj.name || '',
             description: stixObj.description || '',
@@ -266,23 +267,54 @@ export class MitreKnowledgeGraph {
           break;
           
         case 'x-mitre-data-source':
-          if (externalId) {
-            this.dataSourceMap.set(stixObj.id, {
-              id: externalId,
-              name: stixObj.name || '',
-            });
-          }
+          // Always index data sources, even without external ID, because we need the name for linkage
+          this.dataSourceMap.set(stixObj.id, {
+            id: externalId || stixObj.id,
+            name: stixObj.name || '',
+          });
           break;
       }
     }
     
+    let linkedCount = 0;
     this.dataComponentMap.forEach((dc, dcId) => {
       const ds = this.dataSourceMap.get(dc.dataSourceId);
       if (ds) {
         dc.dataSourceName = ds.name;
+        linkedCount++;
       }
     });
-    
+    console.log(`[-] Linked ${linkedCount}/${this.dataComponentMap.size} Data Components to Data Sources`);
+
+    // Populate analyticToDataComponents and reverse lookup dataComponentToAnalytics
+    // This enables O(1) lookups for Tier 2 inference
+    this.analyticMap.forEach((analytic, analyticStixId) => {
+      const dcRefs = analytic.dataComponentRefs;
+      if (dcRefs.length > 0) {
+        // Forward map: analytic -> data components
+        this.analyticToDataComponents.set(analyticStixId, dcRefs);
+
+        // Reverse map: data component -> analytics (for Tier 2 inference)
+        for (const dcRef of dcRefs) {
+          if (!this.dataComponentToAnalytics.has(dcRef)) {
+            this.dataComponentToAnalytics.set(dcRef, []);
+          }
+          this.dataComponentToAnalytics.get(dcRef)!.push(analyticStixId);
+        }
+      }
+    });
+
+    // Populate analyticToStrategies (reverse of strategyToAnalytics)
+    // Traversal: strategy -> analytics becomes analytics -> strategies
+    this.strategyToAnalytics.forEach((analyticStixIds, strategyStixId) => {
+      for (const analyticStixId of analyticStixIds) {
+        if (!this.analyticToStrategies.has(analyticStixId)) {
+          this.analyticToStrategies.set(analyticStixId, []);
+        }
+        this.analyticToStrategies.get(analyticStixId)!.push(strategyStixId);
+      }
+    });
+
     for (const obj of objects) {
       if (obj.type !== 'relationship') continue;
       
@@ -300,16 +332,6 @@ export class MitreKnowledgeGraph {
           if (strategy) {
             strategy.techniques.push(techInfo.id);
           }
-        }
-      }
-      
-      if (rel.relationship_type === 'targets' && rel.source_ref.includes('attack-pattern')) {
-        const techInfo = this.findTechniqueByStixId(rel.source_ref);
-        if (techInfo) {
-          if (!this.techniqueToAssets.has(techInfo.id)) {
-            this.techniqueToAssets.set(techInfo.id, []);
-          }
-          this.techniqueToAssets.get(techInfo.id)!.push(rel.target_ref);
         }
       }
     }
@@ -421,11 +443,6 @@ export class MitreKnowledgeGraph {
       .filter((dc): dc is DataComponentInfo => dc !== undefined);
   }
 
-  getAssetsTargetedByTechnique(techniqueId: string): string[] {
-    const normalized = techniqueId.toUpperCase();
-    return this.techniqueToAssets.get(normalized) || [];
-  }
-
   private getParentTechniqueId(techniqueId: string): string | null {
     if (techniqueId.includes('.')) {
       return techniqueId.split('.')[0];
@@ -475,6 +492,7 @@ export class MitreKnowledgeGraph {
       fields: string[];
       coverage: string;
     }>;
+    techniqueNames: Record<string, string>;
   } {
     const seenDataComponents = new Set<string>();
     const seenCarAnalytics = new Set<string>();
@@ -607,8 +625,16 @@ export class MitreKnowledgeGraph {
       ...s,
       techniques: Array.from(s.techniques),
     }));
+
+    const techniqueNames: Record<string, string> = {};
+    for (const techId of techniqueIds) {
+      const tech = this.getTechnique(techId);
+      if (tech) {
+        techniqueNames[techId.toUpperCase()] = tech.name;
+      }
+    }
     
-    return { detectionStrategies: strategies, dataComponents, carAnalytics };
+    return { detectionStrategies: strategies, dataComponents, carAnalytics, techniqueNames };
   }
 
   getStats(): { techniques: number; strategies: number; analytics: number; dataComponents: number; dataSources: number } {
@@ -619,53 +645,6 @@ export class MitreKnowledgeGraph {
       dataComponents: this.dataComponentMap.size,
       dataSources: this.dataSourceMap.size,
     };
-  }
-
-  private assetStixIdMap: Map<string, string> = new Map();
-
-  private buildAssetStixIdIndex(bundle: StixBundle): void {
-    for (const obj of bundle.objects) {
-      if (obj.type === 'x-mitre-asset') {
-        const stixObj = obj as StixObject;
-        const externalId = this.getExternalId(stixObj);
-        if (externalId && stixObj.name) {
-          this.assetStixIdMap.set(stixObj.name.toLowerCase(), stixObj.id);
-        }
-      }
-    }
-  }
-
-  getTechniquesByAsset(assetName: string): TechniqueInfo[] {
-    const techniques: TechniqueInfo[] = [];
-    const assetNameLower = assetName.toLowerCase();
-    
-    this.techniqueToAssets.forEach((assetStixIds, techId) => {
-      for (const assetStixId of assetStixIds) {
-        let matches = false;
-        
-        this.assetStixIdMap.forEach((stixId, name) => {
-          if (stixId === assetStixId && name.includes(assetNameLower)) {
-            matches = true;
-          }
-        });
-        
-        if (!matches) {
-          if (assetStixId.toLowerCase().includes(assetNameLower)) {
-            matches = true;
-          }
-        }
-        
-        if (matches) {
-          const tech = this.techniqueMap.get(techId);
-          if (tech) {
-            techniques.push(tech);
-          }
-          break;
-        }
-      }
-    });
-    
-    return techniques;
   }
 
   getTechniquesByPlatform(platformName: string): TechniqueInfo[] {
@@ -684,15 +663,176 @@ export class MitreKnowledgeGraph {
     return techniques;
   }
 
-  getTechniquesByHybridSelector(selectorType: 'asset' | 'platform', selectorValue: string): string[] {
-    // Note: Enterprise ATT&CK STIX v18 does not contain x-mitre-asset objects
-    // or 'targets' relationships. Assets are only in ICS ATT&CK.
-    // For Enterprise, we only support platform-based filtering.
-    if (selectorType === 'asset') {
-      console.warn(`Asset-based filtering not supported in Enterprise ATT&CK (asset: ${selectorValue})`);
-      return [];
-    }
+  getTechniquesByHybridSelector(selectorType: 'platform', selectorValue: string): string[] {
     return this.getTechniquesByPlatform(selectorValue).map(t => t.id);
+  }
+
+  /**
+   * Tier 2 Inference: Get techniques by tactic and data component
+   *
+   * This is the core method for inferring techniques when a Sigma rule
+   * only has a tactic tag (e.g., attack.execution) but no specific technique ID.
+   *
+   * Traversal Path:
+   * 1. DataComponent (by name) → DataComponent STIX ID
+   * 2. DataComponent STIX ID → Analytics (via dataComponentToAnalytics)
+   * 3. Analytics → Strategies (via analyticToStrategies)
+   * 4. Strategies → Techniques (via techniqueToStrategies reverse lookup)
+   * 5. Filter by tactic
+   *
+   * @param tacticName - The tactic name (e.g., "execution", "persistence")
+   * @param dataComponentName - The MITRE data component name (e.g., "Process Creation")
+   * @returns Array of techniques that match both the tactic and require the data component
+   */
+  getTechniquesByTacticAndDataComponent(
+    tacticName: string,
+    dataComponentName: string
+  ): TechniqueInfo[] {
+    const results: TechniqueInfo[] = [];
+    const seenTechniques = new Set<string>();
+    const tacticLower = tacticName.toLowerCase().replace(/-/g, '-');
+
+    // Step 1: Find data component STIX ID by name (case-insensitive)
+    const dcNameLower = dataComponentName.toLowerCase();
+    let targetDcStixId: string | null = null;
+
+    this.dataComponentMap.forEach((dc, stixId) => {
+      if (dc.name.toLowerCase() === dcNameLower) {
+        targetDcStixId = stixId;
+      }
+    });
+
+    if (!targetDcStixId) {
+      // Data component not found - try partial match
+      this.dataComponentMap.forEach((dc, stixId) => {
+        if (dc.name.toLowerCase().includes(dcNameLower) || dcNameLower.includes(dc.name.toLowerCase())) {
+          targetDcStixId = stixId;
+        }
+      });
+    }
+
+    if (!targetDcStixId) {
+      console.warn(`[Tier 2] Data component not found: ${dataComponentName}`);
+      return results;
+    }
+
+    // Step 2: Get all analytics that use this data component
+    const analyticStixIds = this.dataComponentToAnalytics.get(targetDcStixId) || [];
+
+    if (analyticStixIds.length === 0) {
+      console.warn(`[Tier 2] No analytics found for data component: ${dataComponentName}`);
+      return results;
+    }
+
+    // Step 3: Get all strategies that contain these analytics
+    const strategyStixIds = new Set<string>();
+    for (const analyticStixId of analyticStixIds) {
+      const strategies = this.analyticToStrategies.get(analyticStixId) || [];
+      for (const stratId of strategies) {
+        strategyStixIds.add(stratId);
+      }
+    }
+
+    // Step 4: Get all techniques detected by these strategies
+    // We need to reverse-lookup techniqueToStrategies
+    this.techniqueToStrategies.forEach((stratIds, techId) => {
+      for (const stratId of stratIds) {
+        if (strategyStixIds.has(stratId)) {
+          const tech = this.techniqueMap.get(techId);
+          if (tech && !seenTechniques.has(techId)) {
+            // Step 5: Filter by tactic
+            const tacticMatch = tech.tactics.some(t =>
+              t.toLowerCase().replace(/_/g, '-') === tacticLower ||
+              t.toLowerCase().replace(/-/g, '-') === tacticLower
+            );
+
+            if (tacticMatch) {
+              seenTechniques.add(techId);
+              results.push(tech);
+            }
+          }
+          break;
+        }
+      }
+    });
+
+    // Fallback: If no results from strategy traversal, try direct data source matching
+    if (results.length === 0) {
+      const dcInfo = this.dataComponentMap.get(targetDcStixId);
+      if (dcInfo) {
+        const dsName = dcInfo.dataSourceName || dcInfo.name;
+
+        this.techniqueMap.forEach((tech, techId) => {
+          if (seenTechniques.has(techId)) return;
+
+          // Check if technique's data sources contain this component
+          const hasDataSource = tech.dataSources.some(ds =>
+            ds.toLowerCase().includes(dcNameLower) ||
+            ds.toLowerCase().includes(dsName.toLowerCase())
+          );
+
+          if (hasDataSource) {
+            // Filter by tactic
+            const tacticMatch = tech.tactics.some(t =>
+              t.toLowerCase().replace(/_/g, '-') === tacticLower ||
+              t.toLowerCase().replace(/-/g, '-') === tacticLower
+            );
+
+            if (tacticMatch) {
+              seenTechniques.add(techId);
+              results.push(tech);
+            }
+          }
+        });
+      }
+    }
+
+    console.log(`[Tier 2] Found ${results.length} techniques for tactic="${tacticName}" + dataComponent="${dataComponentName}"`);
+    return results;
+  }
+
+  /**
+   * Get data component info by name
+   */
+  getDataComponentByName(name: string): DataComponentInfo | null {
+    const nameLower = name.toLowerCase();
+    let result: DataComponentInfo | null = null;
+
+    this.dataComponentMap.forEach((dc) => {
+      if (dc.name.toLowerCase() === nameLower) {
+        result = dc;
+      }
+    });
+
+    return result;
+  }
+
+  /**
+   * Get all data components (useful for debugging and map generation)
+   */
+  getAllDataComponents(): DataComponentInfo[] {
+    return Array.from(this.dataComponentMap.values());
+  }
+
+  /**
+   * Get all techniques by tactic (useful for debugging)
+   */
+  getTechniquesByTactic(tacticName: string): TechniqueInfo[] {
+    const tacticLower = tacticName.toLowerCase().replace(/-/g, '-');
+    const results: TechniqueInfo[] = [];
+
+    this.techniqueMap.forEach((tech) => {
+      const tacticMatch = tech.tactics.some(t =>
+        t.toLowerCase().replace(/_/g, '-') === tacticLower ||
+        t.toLowerCase().replace(/-/g, '-') === tacticLower
+      );
+
+      if (tacticMatch) {
+        results.push(tech);
+      }
+    });
+
+    return results;
   }
 }
 
