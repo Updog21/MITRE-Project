@@ -31,7 +31,7 @@ const threatGroups = [
 export default function Threats() {
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <Sidebar />
+      <Sidebar variant="dashboard" />
       
       <main className="flex-1 overflow-auto">
         <div className="grid-pattern min-h-full">

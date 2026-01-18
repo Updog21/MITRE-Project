@@ -9,7 +9,7 @@ import { Settings as SettingsIcon, Server, Database, Webhook, Key } from 'lucide
 export default function Settings() {
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <Sidebar />
+      <Sidebar variant="dashboard" />
       
       <main className="flex-1 overflow-auto">
         <div className="grid-pattern min-h-full">

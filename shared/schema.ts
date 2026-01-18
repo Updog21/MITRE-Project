@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, serial, timestamp, jsonb, integer, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, serial, timestamp, jsonb, integer, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -7,13 +7,21 @@ export const productTypeEnum = ['cloud', 'network', 'endpoint', 'siem', 'identit
 export type ProductType = typeof productTypeEnum[number];
 export const mappingStatusEnum = ['matched', 'partial', 'ai_pending', 'not_found'] as const;
 export type MappingStatus = typeof mappingStatusEnum[number];
-export const resourceTypeEnum = ['ctid', 'sigma', 'elastic', 'splunk', 'mitre_stix'] as const;
+export const resourceTypeEnum = ['ctid', 'sigma', 'elastic', 'splunk', 'azure', 'mitre_stix'] as const;
 export type ResourceType = typeof resourceTypeEnum[number];
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
 });
+
+export const settings = pgTable("settings", {
+  id: serial("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export const hybridSelectorTypeEnum = ['platform'] as const;
 export type HybridSelectorType = typeof hybridSelectorTypeEnum[number];
 export const products = pgTable("products", {
@@ -52,6 +60,9 @@ export const detectionStrategies = pgTable("detection_strategies", {
   description: text("description").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+export const validationStatusEnum = ['pending', 'valid', 'invalid', 'uncertain'] as const;
+export type ValidationStatus = typeof validationStatusEnum[number];
+
 export const analytics = pgTable("analytics", {
   id: serial("id").primaryKey(),
   analyticId: text("analytic_id").notNull().unique(),
@@ -62,6 +73,8 @@ export const analytics = pgTable("analytics", {
   dataComponentIds: text("data_component_ids").array().default(sql`'{}'::text[]`),
   logSources: jsonb("log_sources").default('[]'),
   mutableElements: jsonb("mutable_elements").default('[]'),
+  validationStatus: text("validation_status").default('pending'),
+  aiConfidence: integer("ai_confidence").default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 export const mitreAssets = pgTable("mitre_assets", {
@@ -113,9 +126,67 @@ export const productMappings = pgTable("product_mappings", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const ssmCapabilities = pgTable("ssm_capabilities", {
+  id: serial("id").primaryKey(),
+  productId: text("product_id").notNull(),
+  capabilityGroupId: text("capability_group_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  platform: text("platform").notNull(),
+  source: text("source").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const ssmMappings = pgTable("ssm_mappings", {
+  id: serial("id").primaryKey(),
+  capabilityId: integer("capability_id")
+    .notNull()
+    .references(() => ssmCapabilities.id),
+  techniqueId: text("technique_id").notNull(),
+  techniqueName: text("technique_name").notNull(),
+  mappingType: text("mapping_type").notNull(),
+  scoreCategory: text("score_category").notNull(),
+  scoreValue: text("score_value").notNull(),
+  comments: text("comments"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const nodes = pgTable("nodes", {
+  id: text("id").primaryKey(),
+  type: text("type").notNull(),
+  name: text("name").notNull(),
+  dataset: text("dataset").notNull(),
+  datasetVersion: text("dataset_version"),
+  localId: integer("local_id"),
+  attributes: jsonb("attributes"),
+}, (table) => ({
+  datasetLocalIdIdx: index("nodes_dataset_local_id_idx").on(table.dataset, table.localId),
+}));
+
+export const edges = pgTable("edges", {
+  sourceId: text("source_id").notNull().references(() => nodes.id),
+  targetId: text("target_id").notNull().references(() => nodes.id),
+  type: text("type").notNull(),
+  dataset: text("dataset").notNull(),
+  datasetVersion: text("dataset_version"),
+}, (table) => ({
+  sourceIdx: index("edges_source_id_idx").on(table.sourceId),
+  targetIdx: index("edges_target_id_idx").on(table.targetId),
+  datasetSourceIdx: index("edges_dataset_source_idx").on(table.dataset, table.sourceId),
+  datasetTargetIdx: index("edges_dataset_target_idx").on(table.dataset, table.targetId),
+  datasetTypeIdx: index("edges_dataset_type_idx").on(table.dataset, table.type),
+  uniqueRelationshipIdx: uniqueIndex("edges_unique_relationship_idx").on(table.dataset, table.sourceId, table.targetId, table.type),
+}));
+
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
+});
+
+export const insertSettingsSchema = createInsertSchema(settings).omit({
+  id: true,
+  updatedAt: true,
 });
 
 export const insertProductSchema = createInsertSchema(products).omit({
@@ -188,6 +259,10 @@ export const insertProductMappingSchema = createInsertSchema(productMappings).om
   updatedAt: true,
 });
 
+export const insertNodeSchema = createInsertSchema(nodes);
+
+export const insertEdgeSchema = createInsertSchema(edges);
+
 // Product Aliases table for search term normalization
 // Allows "m365" to map to "Microsoft 365", "O365" to "Office 365", etc.
 // Uses Foreign Key to products.id for referential integrity
@@ -200,9 +275,28 @@ export const productAliases = pgTable("product_aliases", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const productStreams = pgTable("product_streams", {
+  id: serial("id").primaryKey(),
+  productId: integer("product_id").notNull().references(() => products.id),
+  name: text("name").notNull(),
+  streamType: text("stream_type").notNull().default("log"),
+  config: jsonb("config"),
+  metadata: jsonb("metadata"),
+  mappedDataComponents: jsonb("mapped_data_components"),
+  isConfigured: boolean("is_configured").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export const insertProductAliasSchema = createInsertSchema(productAliases).omit({
   id: true,
   createdAt: true,
+});
+
+export const insertProductStreamSchema = createInsertSchema(productStreams).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
 });
 
 export type InsertResourceCache = z.infer<typeof insertResourceCacheSchema>;
@@ -211,5 +305,17 @@ export type ResourceCache = typeof resourceCache.$inferSelect;
 export type InsertProductMapping = z.infer<typeof insertProductMappingSchema>;
 export type ProductMapping = typeof productMappings.$inferSelect;
 
+export type InsertNode = z.infer<typeof insertNodeSchema>;
+export type Node = typeof nodes.$inferSelect;
+
+export type InsertEdge = z.infer<typeof insertEdgeSchema>;
+export type Edge = typeof edges.$inferSelect;
+
 export type InsertProductAlias = z.infer<typeof insertProductAliasSchema>;
 export type ProductAlias = typeof productAliases.$inferSelect;
+
+export type InsertProductStream = z.infer<typeof insertProductStreamSchema>;
+export type ProductStream = typeof productStreams.$inferSelect;
+
+export type InsertSettings = z.infer<typeof insertSettingsSchema>;
+export type Settings = typeof settings.$inferSelect;

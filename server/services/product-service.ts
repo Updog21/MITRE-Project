@@ -14,12 +14,18 @@ import { db } from '../db';
 import {
   products,
   productAliases,
+  productMappings,
+  productStreams,
+  ssmCapabilities,
+  ssmMappings,
   type Product,
   type InsertProduct,
   type ProductAlias,
   type InsertProductAlias
 } from '@shared/schema';
-import { eq, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, or, sql } from 'drizzle-orm';
+import { runAutoMapper } from '../auto-mapper/service';
+import { deleteProductGraph, syncProductProvidesEdges, upsertProductNode } from '../lib/graph-bridge';
 
 export interface ResolvedSearchTerms {
   canonicalName: string;
@@ -67,32 +73,42 @@ export class ProductService {
   }
 
   /**
+   * Resolve a search query to a single product record (alias-aware)
+   */
+  async resolveProduct(query: string): Promise<Product | null> {
+    const normalizedQuery = query.toLowerCase().trim();
+
+    const product = await this.findProductByName(normalizedQuery);
+    if (product) return product;
+
+    const aliasMatch = await this.findProductByAlias(normalizedQuery);
+    if (aliasMatch) return aliasMatch;
+
+    const fuzzyMatch = await this.fuzzyFindProduct(normalizedQuery);
+    if (fuzzyMatch) return fuzzyMatch;
+
+    return null;
+  }
+
+  /**
    * Build comprehensive search terms from product + aliases
    */
   private buildSearchTerms(product: Product, aliases: string[]): ResolvedSearchTerms {
     const terms = new Set<string>();
 
-    // Add canonical name variations
-    const name = product.productName;
-    terms.add(name.toLowerCase());
-    terms.add(name.toLowerCase().replace(/\s+/g, ''));
-    terms.add(name.toLowerCase().replace(/\s+/g, '-'));
-    terms.add(name.toLowerCase().replace(/\s+/g, '_'));
-
-    // Add vendor variations
-    const vendor = product.vendor;
-    terms.add(vendor.toLowerCase());
-    terms.add(vendor.toLowerCase().replace(/\s+/g, ''));
-
-    // Add combined variations
-    terms.add(`${vendor} ${name}`.toLowerCase());
-    terms.add(`${vendor}-${name}`.toLowerCase().replace(/\s+/g, '-'));
+    // Only use vendor + product and explicit aliases
+    const name = product.productName.trim();
+    const vendor = product.vendor.trim();
+    if (vendor && name) {
+      terms.add(`${vendor} ${name}`.toLowerCase());
+    }
 
     // Add all aliases
     aliases.forEach(alias => {
-      terms.add(alias.toLowerCase());
-      terms.add(alias.toLowerCase().replace(/\s+/g, ''));
-      terms.add(alias.toLowerCase().replace(/\s+/g, '-'));
+      const normalized = alias.trim();
+      if (normalized) {
+        terms.add(normalized.toLowerCase());
+      }
     });
 
     return {
@@ -213,30 +229,88 @@ export class ProductService {
   }
 
   /**
-   * Create a new product
+   * Create a new product and automatically trigger mapping
    */
-  async createProduct(product: InsertProduct): Promise<Product> {
-    const result = await db.insert(products).values(product).returning();
-    return result[0];
+  async createProduct(
+    product: InsertProduct,
+    options?: { autoMap?: boolean }
+  ): Promise<Product> {
+    const createdProduct = await db.transaction(async (tx) => {
+      const result = await tx.insert(products).values(product).returning();
+      const nextProduct = result[0];
+      await upsertProductNode(nextProduct, tx);
+      await syncProductProvidesEdges(nextProduct, tx);
+      return nextProduct;
+    });
+
+    if (options?.autoMap !== false) {
+      // Trigger auto-mapper in background
+      console.log(`[ProductService] Triggering Auto-Mapper for ${createdProduct.productName}...`);
+      runAutoMapper(createdProduct.productId)
+        .then(() => console.log(`[AutoMapper] Completed for ${createdProduct.productName}`))
+        .catch(err => console.error(`[AutoMapper] Failed for ${createdProduct.productName}:`, err));
+    }
+
+    return createdProduct;
   }
 
   /**
    * Update a product
    */
   async updateProduct(productId: string, updates: Partial<InsertProduct>): Promise<Product | null> {
-    const result = await db.update(products)
-      .set(updates)
-      .where(eq(products.productId, productId))
-      .returning();
-    return result[0] || null;
+    const updatedProduct = await db.transaction(async (tx) => {
+      const result = await tx.update(products)
+        .set(updates)
+        .where(eq(products.productId, productId))
+        .returning();
+      if (!result[0]) return null;
+      await upsertProductNode(result[0], tx);
+      await syncProductProvidesEdges(result[0], tx);
+      return result[0];
+    });
+    return updatedProduct || null;
   }
 
   /**
    * Delete a product (also deletes associated aliases due to FK cascade)
    */
   async deleteProduct(productId: string): Promise<boolean> {
-    const result = await db.delete(products).where(eq(products.productId, productId)).returning();
-    return result.length > 0;
+    const deletedProduct = await db.transaction(async (tx) => {
+      const existing = await tx
+        .select({ id: products.id, productId: products.productId })
+        .from(products)
+        .where(eq(products.productId, productId))
+        .limit(1);
+
+      if (!existing[0]) return null;
+
+      const productRow = existing[0];
+
+      await tx.delete(productAliases).where(eq(productAliases.productId, productRow.id));
+      await tx.delete(productStreams).where(eq(productStreams.productId, productRow.id));
+      await tx.delete(productMappings).where(eq(productMappings.productId, productRow.productId));
+
+      const capabilityRows = await tx
+        .select({ id: ssmCapabilities.id })
+        .from(ssmCapabilities)
+        .where(eq(ssmCapabilities.productId, productRow.productId));
+
+      if (capabilityRows.length > 0) {
+        await tx.delete(ssmMappings).where(
+          inArray(
+            ssmMappings.capabilityId,
+            capabilityRows.map(row => row.id)
+          )
+        );
+        await tx.delete(ssmCapabilities).where(eq(ssmCapabilities.productId, productRow.productId));
+      }
+
+      const result = await tx.delete(products).where(eq(products.productId, productId)).returning();
+      if (!result[0]) return null;
+      await deleteProductGraph(result[0], tx);
+      return result[0];
+    });
+    return Boolean(deletedProduct);
   }
 
   // ============ Alias Operations ============
@@ -312,6 +386,21 @@ export class ProductService {
   async deleteAlias(aliasId: number): Promise<boolean> {
     const result = await db.delete(productAliases).where(eq(productAliases.id, aliasId)).returning();
     return result.length > 0;
+  }
+
+  async updateAlias(aliasId: number, alias: string, confidence?: number): Promise<ProductAlias | null> {
+    const normalized = alias.trim();
+    if (!normalized) return null;
+
+    const result = await db.update(productAliases)
+      .set({
+        alias: normalized,
+        confidence: confidence ?? 100,
+      })
+      .where(eq(productAliases.id, aliasId))
+      .returning();
+
+    return result[0] || null;
   }
 
   /**

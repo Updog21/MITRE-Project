@@ -19,8 +19,9 @@ import * as yaml from 'js-yaml';
 import { glob } from 'glob';
 import { mitreKnowledgeGraph } from '../../mitre-stix/knowledge-graph';
 import { ResourceAdapter, NormalizedMapping, AnalyticMapping, DataComponentMapping } from '../types';
-import mapConfig from '../../../mappings/sigma-v18-map.json';
 import { productService } from '../../services';
+import { fetchWithTimeout } from '../../utils/fetch';
+import { buildTechniqueContext, mergeTechniqueContexts } from '../graph-context';
 
 // Confidence Modifiers by rule source type
 const MODIFIERS: Record<string, number> = {
@@ -46,15 +47,25 @@ interface ExtractedRule {
     product?: string;
     service?: string;
   };
+  detection?: Record<string, unknown>;
+  falsepositives?: string[];
   tags?: string[];
   foundIds: ScoredId[];
+  filePath?: string;
 }
 
 export class SigmaAdapter implements ResourceAdapter {
   name: 'sigma' = 'sigma';
+  private dataComponentLookup: Map<string, string> | null = null;
+  private dataComponentIndex: Array<{ normalized: string; name: string }> = [];
 
   // Relative path - works in both Docker (WORKDIR /app) and local dev
-  private BASE_SIGMA_PATH = './data/sigma';
+  private BASE_SIGMA_PATH = path.resolve(process.cwd(), 'data', 'sigma');
+  private SIGMA_API_URLS = [
+    'https://api.github.com/repos/SigmaHQ/sigma/git/trees/main?recursive=1',
+    'https://api.github.com/repos/SigmaHQ/sigma/git/trees/master?recursive=1',
+  ];
+  private SIGMA_RAW_BASE = 'https://raw.githubusercontent.com/SigmaHQ/sigma';
 
   // Rule directories to scan
   private rulePaths = [
@@ -79,7 +90,7 @@ export class SigmaAdapter implements ResourceAdapter {
     // Phase 2: Try to resolve search terms via ProductService (alias-aware)
     let searchTerms: string[];
     try {
-      const resolved = await productService.resolveSearchTerms(productName);
+      const resolved = await productService.resolveSearchTerms(`${vendor} ${productName}`);
       if (resolved) {
         searchTerms = resolved.allTerms;
         console.log(`[Sigma] ProductService resolved "${productName}" → ${searchTerms.length} search terms`);
@@ -94,18 +105,8 @@ export class SigmaAdapter implements ResourceAdapter {
       console.log(`[Sigma] ProductService unavailable, using basic terms`);
     }
 
-    // 1. Find Files (Locally - Fast)
-    let allFiles: string[] = [];
-    try {
-      for (const subDir of this.rulePaths) {
-        const searchPath = path.join(this.BASE_SIGMA_PATH, subDir, '**/*.yml');
-        const files = await glob(searchPath);
-        allFiles = allFiles.concat(files);
-      }
-    } catch (e) {
-      console.error(`[Sigma] Error finding files at ${this.BASE_SIGMA_PATH}. Did you clone the repo?`, e);
-      return null;
-    }
+    // 1. Find Files (Local only)
+    const allFiles = await this.findLocalFiles();
 
     if (allFiles.length === 0) {
       console.warn(`[Sigma] 0 files found. Check your ${this.BASE_SIGMA_PATH} folder.`);
@@ -121,7 +122,12 @@ export class SigmaAdapter implements ResourceAdapter {
     for (let i = 0; i < allFiles.length; i += BATCH_SIZE) {
       const chunk = allFiles.slice(i, i + BATCH_SIZE);
       const chunkResults = await Promise.all(
-        chunk.map(file => this.extractIdsFromFile(file, searchTerms))
+        chunk.map(file => {
+          if (file.startsWith('http')) {
+            return this.extractIdsFromRemote(file, searchTerms);
+          }
+          return this.extractIdsFromFile(file, searchTerms);
+        })
       );
       extractedData.push(...chunkResults.filter((r): r is ExtractedRule => r !== null));
 
@@ -144,6 +150,25 @@ export class SigmaAdapter implements ResourceAdapter {
   private async extractIdsFromFile(filePath: string, searchTerms: string[]): Promise<ExtractedRule | null> {
     try {
       const content = fs.readFileSync(filePath, 'utf8');
+      return this.extractIdsFromContent(content, filePath, searchTerms);
+    } catch {
+      return null;
+    }
+  }
+
+  private async extractIdsFromRemote(url: string, searchTerms: string[]): Promise<ExtractedRule | null> {
+    try {
+      const response = await fetchWithTimeout(url);
+      if (!response.ok) return null;
+      const content = await response.text();
+      return this.extractIdsFromContent(content, url, searchTerms);
+    } catch {
+      return null;
+    }
+  }
+
+  private extractIdsFromContent(content: string, filePath: string, searchTerms: string[]): ExtractedRule | null {
+    try {
       const doc = yaml.load(content) as any;
 
       if (!doc || !doc.title) return null;
@@ -167,8 +192,7 @@ export class SigmaAdapter implements ResourceAdapter {
       }
       // C. Tier 2: Inference (Map Category -> DC Name)
       else if (doc.logsource?.category) {
-        const cat = doc.logsource.category.toLowerCase();
-        const mitreDcName = (mapConfig.category_map as Record<string, string>)[cat];
+        const mitreDcName = this.getDataComponentForCategory(doc.logsource.category);
 
         if (mitreDcName) {
           // We found a Data Component Name.
@@ -189,13 +213,65 @@ export class SigmaAdapter implements ResourceAdapter {
         title: doc.title,
         description: doc.description,
         logsource: doc.logsource || {},
+        detection: doc.detection || {},
+        falsepositives: Array.isArray(doc.falsepositives) ? doc.falsepositives : [],
         tags: doc.tags,  // Preserve tags for tactic extraction in hydration
-        foundIds: ids
+        foundIds: ids,
+        filePath
       };
 
     } catch {
       return null;
     }
+  }
+
+  private async findLocalFiles(): Promise<string[]> {
+    try {
+      let allFiles: string[] = [];
+      for (const subDir of this.rulePaths) {
+        const searchPath = path.join(this.BASE_SIGMA_PATH, subDir, '**/*.yml');
+        const files = await glob(searchPath);
+        allFiles = allFiles.concat(files);
+      }
+      return allFiles;
+    } catch (e) {
+      console.error(`[Sigma] Error finding files at ${this.BASE_SIGMA_PATH}. Did you clone the repo?`, e);
+      return [];
+    }
+  }
+
+  private async findRemoteFiles(searchTerms: string[]): Promise<string[]> {
+    for (const apiUrl of this.SIGMA_API_URLS) {
+      try {
+        const response = await fetchWithTimeout(apiUrl, {
+          headers: { 'Accept': 'application/vnd.github.v3+json' }
+        });
+        if (!response.ok) {
+          continue;
+        }
+        const data = await response.json();
+        const files = (data.tree || [])
+          .filter((item: { path: string; type: string }) =>
+            item.type === 'blob' &&
+            item.path.endsWith('.yml') &&
+            this.rulePaths.some(prefix => item.path.startsWith(`${prefix}/`))
+          )
+          .filter((item: { path: string }) =>
+            searchTerms.some(term => item.path.toLowerCase().includes(term.toLowerCase()))
+          )
+          .map((item: { path: string }) => {
+            const branch = apiUrl.includes('/main?') ? 'main' : 'master';
+            return `${this.SIGMA_RAW_BASE}/${branch}/${item.path}`;
+          });
+
+        if (files.length > 0) {
+          return files;
+        }
+      } catch {
+        continue;
+      }
+    }
+    return [];
   }
 
   /**
@@ -207,15 +283,9 @@ export class SigmaAdapter implements ResourceAdapter {
     const dcMap = new Set<string>();
 
     for (const item of extractedRules) {
-      // 1. Add Analytic (From Rule)
-      analytics.push({
-        id: `SIGMA-${item.ruleId}`,
-        name: item.title,
-        description: item.description,
-        source: 'sigma'
-      });
+      const ruleTechniqueIds = new Set<string>();
 
-      // 2. Resolve IDs using Workbench
+      // Resolve IDs using Workbench
       for (const idObj of item.foundIds) {
 
         if (idObj.type === 'technique') {
@@ -223,6 +293,7 @@ export class SigmaAdapter implements ResourceAdapter {
           const tech = mitreKnowledgeGraph.getTechnique(idObj.id);
           if (tech) {
             this.addTechnique(techniquesMap, tech.id, idObj.confidence);
+            ruleTechniqueIds.add(tech.id);
           }
         }
         else if (idObj.type === 'data-component') {
@@ -235,12 +306,32 @@ export class SigmaAdapter implements ResourceAdapter {
 
           inferredTechs.forEach(t => {
             this.addTechnique(techniquesMap, t.id, idObj.confidence);
+            ruleTechniqueIds.add(t.id);
           });
 
           // Also track the Data Component itself for the UI
           dcMap.add(idObj.id);
         }
       }
+
+      // Add Analytic (From Rule)
+      analytics.push({
+        id: `SIGMA-${item.ruleId}`,
+        name: item.title,
+        techniqueIds: Array.from(ruleTechniqueIds),
+        platforms: this.extractPlatforms(item.tags),
+        description: item.description,
+        source: 'sigma',
+        sourceFile: item.filePath ? item.filePath.split('/').pop() : undefined,
+        repoName: 'Sigma',
+        ruleId: item.ruleId,
+        rawSource: this.getRawSource(item.logsource),
+        metadata: {
+          log_sources: this.formatLogSources(item.logsource),
+          query: item.detection || undefined,
+          caveats: item.falsepositives && item.falsepositives.length > 0 ? item.falsepositives : undefined,
+        },
+      });
     }
 
     // Convert Maps to Arrays for Final Output
@@ -253,6 +344,31 @@ export class SigmaAdapter implements ResourceAdapter {
       name,
       dataSource: 'Unknown' // UI will look up Source via Graph
     }));
+
+    // Enrich analytics with STIX context (log sources, channels, mutable elements)
+    const stixContext = buildTechniqueContext(allTechniques.map(t => t.techniqueId));
+    if (stixContext.size > 0) {
+      for (const analytic of analytics) {
+        if (!analytic.techniqueIds || analytic.techniqueIds.length === 0) continue;
+        const merged = mergeTechniqueContexts(analytic.techniqueIds, stixContext);
+        if (!merged) continue;
+
+        const metadata = { ...(analytic.metadata || {}) } as Record<string, unknown>;
+
+        // Add STIX-derived metadata only if not already present
+        if (!('stix_log_sources' in metadata) && merged.logSources.length > 0) {
+          metadata.stix_log_sources = merged.logSources;
+        }
+        if (!('stix_mutable_elements' in metadata) && merged.mutableElements.length > 0) {
+          metadata.stix_mutable_elements = merged.mutableElements;
+        }
+        if (!('stix_data_components' in metadata) && merged.dataComponents.length > 0) {
+          metadata.stix_data_components = merged.dataComponents;
+        }
+
+        analytic.metadata = metadata;
+      }
+    }
 
     return {
       productId: productName,
@@ -274,16 +390,84 @@ export class SigmaAdapter implements ResourceAdapter {
   }
 
   private buildSearchTerms(productName: string, vendor: string): string[] {
-    const terms = new Set<string>();
-    terms.add(productName.toLowerCase());
-    terms.add(vendor.toLowerCase());
+    const combined = `${vendor} ${productName}`.trim().toLowerCase();
+    return combined ? [combined] : [];
+  }
 
-    // Add common variations
-    terms.add(productName.toLowerCase().replace(/\s+/g, ''));
-    terms.add(productName.toLowerCase().replace(/\s+/g, '-'));
-    terms.add(productName.toLowerCase().replace(/\s+/g, '_'));
+  private extractPlatforms(tags?: string[]): string[] {
+    if (!tags || tags.length === 0) return [];
+    const platforms = new Set<string>();
+    for (const tag of tags) {
+      const normalized = tag.toLowerCase();
+      if (normalized.includes('os:windows') || normalized.includes('platform:windows')) {
+        platforms.add('Windows');
+      }
+      if (normalized.includes('os:linux') || normalized.includes('platform:linux')) {
+        platforms.add('Linux');
+      }
+      if (normalized.includes('os:macos') || normalized.includes('platform:macos') || normalized.includes('os:osx')) {
+        platforms.add('macOS');
+      }
+    }
+    return Array.from(platforms);
+  }
 
-    return Array.from(terms).filter(t => t.length > 0);
+  private formatLogSources(logsource: ExtractedRule['logsource']): string[] {
+    const parts = [logsource.category, logsource.product, logsource.service].filter(Boolean);
+    if (parts.length === 0) return [];
+    return [parts.join(' / ')];
+  }
+
+  private getDataComponentForCategory(category: string): string | null {
+    const normalized = this.normalizeCategory(category);
+    if (!normalized) return null;
+    const lookup = this.getDataComponentLookup();
+    const direct = lookup.get(normalized);
+    if (direct) return direct;
+
+    let best: { name: string; score: number } | null = null;
+    for (const entry of this.dataComponentIndex) {
+      if (entry.normalized.includes(normalized) || normalized.includes(entry.normalized)) {
+        const score = Math.abs(entry.normalized.length - normalized.length);
+        if (!best || score < best.score) {
+          best = { name: entry.name, score };
+        }
+      }
+    }
+    return best ? best.name : null;
+  }
+
+  private getDataComponentLookup(): Map<string, string> {
+    if (this.dataComponentLookup) return this.dataComponentLookup;
+    const lookup = new Map<string, string>();
+    const index: Array<{ normalized: string; name: string }> = [];
+    const components = mitreKnowledgeGraph.getAllDataComponents();
+    for (const dc of components) {
+      const normalized = this.normalizeCategory(dc.name);
+      if (!normalized) continue;
+      if (!lookup.has(normalized)) {
+        lookup.set(normalized, dc.name);
+      }
+      index.push({ normalized, name: dc.name });
+    }
+    this.dataComponentLookup = lookup;
+    this.dataComponentIndex = index;
+    return lookup;
+  }
+
+  private normalizeCategory(value: string): string {
+    return value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private getRawSource(logsource: ExtractedRule['logsource']): string | undefined {
+    if (logsource.product && logsource.service) {
+      return `${logsource.product}:${logsource.service}`;
+    }
+    return logsource.service || logsource.category || logsource.product || undefined;
   }
 
   private ruleMatches(doc: any, terms: string[]): boolean {

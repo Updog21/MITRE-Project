@@ -1,4 +1,5 @@
 import { ResourceAdapter, NormalizedMapping, AnalyticMapping, DataComponentMapping } from '../types';
+import { fetchWithTimeout } from '../../utils/fetch';
 
 const MITRE_STIX_URL = 'https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/enterprise-attack/enterprise-attack.json';
 
@@ -42,7 +43,7 @@ export class MitreStixAdapter implements ResourceAdapter {
     if (this.stixCache) return this.stixCache;
 
     try {
-      const response = await fetch(MITRE_STIX_URL);
+      const response = await fetchWithTimeout(MITRE_STIX_URL);
       if (!response.ok) return null;
 
       const data = await response.json();

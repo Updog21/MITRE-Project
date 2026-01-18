@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Sidebar } from '@/components/Sidebar';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -22,6 +23,15 @@ import {
   Clock,
   Zap
 } from 'lucide-react';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 
 type TaskStatus = 'idle' | 'running' | 'success' | 'error';
 
@@ -37,54 +47,154 @@ export default function AdminTasks() {
   const { data: aliases } = useAliases();
 
   const [sigmaSync, setSigmaSync] = useState<TaskState>({ status: 'idle', message: '', progress: 0 });
+  const [splunkSync, setSplunkSync] = useState<TaskState>({ status: 'idle', message: '', progress: 0 });
+  const [elasticSync, setElasticSync] = useState<TaskState>({ status: 'idle', message: '', progress: 0 });
+  const [azureSync, setAzureSync] = useState<TaskState>({ status: 'idle', message: '', progress: 0 });
+  const [ctidSync, setCtidSync] = useState<TaskState>({ status: 'idle', message: '', progress: 0 });
   const [stixInit, setStixInit] = useState<TaskState>({ status: 'idle', message: '', progress: 0 });
   const [dbSeed, setDbSeed] = useState<TaskState>({ status: 'idle', message: '', progress: 0 });
+  const [autoRefreshLogs, setAutoRefreshLogs] = useState(false);
+  const [aliasDialogOpen, setAliasDialogOpen] = useState(false);
+  const [aliasSearch, setAliasSearch] = useState('');
+  const [aliasEdits, setAliasEdits] = useState<Record<number, string>>({});
+  const [aliasSaving, setAliasSaving] = useState<Record<number, boolean>>({});
 
   const runSigmaSync = async () => {
-    setSigmaSync({ status: 'running', message: 'Checking Sigma repository...', progress: 20 });
+    setSigmaSync({ status: 'running', message: 'Refreshing Sigma rules...', progress: 30 });
 
     try {
-      // Simulate progress updates (real implementation would use SSE or WebSocket)
-      await new Promise(r => setTimeout(r, 500));
-      setSigmaSync({ status: 'running', message: 'Fetching latest rules...', progress: 50 });
+      const response = await fetch('/api/admin/maintenance/refresh-sigma', { method: 'POST' });
+      if (!response.ok) {
+        throw new Error('Failed to refresh Sigma rules');
+      }
 
-      await new Promise(r => setTimeout(r, 1000));
-      setSigmaSync({ status: 'running', message: 'Updating local cache...', progress: 80 });
+      const result = await response.json();
+      setSigmaSync({
+        status: 'success',
+        message: result.message || 'Sigma rules synchronized successfully',
+        progress: 100
+      });
 
-      await new Promise(r => setTimeout(r, 500));
-      setSigmaSync({ status: 'success', message: 'Sigma rules synchronized successfully', progress: 100 });
-
-      // Reset after showing success
       setTimeout(() => setSigmaSync({ status: 'idle', message: '', progress: 0 }), 3000);
+      refetchStatus();
     } catch (error: any) {
       setSigmaSync({ status: 'error', message: error.message || 'Failed to sync Sigma rules', progress: 0 });
     }
   };
 
   const runStixInit = async () => {
-    setStixInit({ status: 'running', message: 'Initializing MITRE STIX data...', progress: 20 });
+    setStixInit({ status: 'running', message: 'Syncing MITRE data...', progress: 30 });
 
     try {
-      const response = await fetch('/api/mitre-stix/init', { method: 'POST' });
+      const response = await fetch('/api/admin/maintenance/refresh-mitre', { method: 'POST' });
 
       if (!response.ok) {
-        throw new Error('Failed to initialize STIX data');
+        throw new Error('Failed to sync MITRE data');
       }
-
-      setStixInit({ status: 'running', message: 'Loading techniques and tactics...', progress: 60 });
-      await new Promise(r => setTimeout(r, 500));
 
       const result = await response.json();
       setStixInit({
         status: 'success',
-        message: `Loaded ${result.stats?.techniques || 0} techniques, ${result.stats?.tactics || 0} tactics`,
+        message: `Updated ${result.dataComponents || 0} data components and ${result.detectionStrategies || 0} strategies`,
         progress: 100
       });
 
       refetchStatus();
       setTimeout(() => setStixInit({ status: 'idle', message: '', progress: 0 }), 3000);
     } catch (error: any) {
-      setStixInit({ status: 'error', message: error.message || 'Failed to initialize STIX data', progress: 0 });
+      setStixInit({ status: 'error', message: error.message || 'Failed to sync MITRE data', progress: 0 });
+    }
+  };
+
+  const runSplunkSync = async () => {
+    setSplunkSync({ status: 'running', message: 'Refreshing Splunk rules...', progress: 30 });
+
+    try {
+      const response = await fetch('/api/admin/maintenance/refresh-splunk', { method: 'POST' });
+      if (!response.ok) {
+        throw new Error('Failed to refresh Splunk rules');
+      }
+
+      const result = await response.json();
+      setSplunkSync({
+        status: 'success',
+        message: result.message || 'Splunk rules synchronized successfully',
+        progress: 100
+      });
+
+      setTimeout(() => setSplunkSync({ status: 'idle', message: '', progress: 0 }), 3000);
+      refetchStatus();
+    } catch (error: any) {
+      setSplunkSync({ status: 'error', message: error.message || 'Failed to sync Splunk rules', progress: 0 });
+    }
+  };
+
+  const runElasticSync = async () => {
+    setElasticSync({ status: 'running', message: 'Refreshing Elastic rules...', progress: 30 });
+
+    try {
+      const response = await fetch('/api/admin/maintenance/refresh-elastic', { method: 'POST' });
+      if (!response.ok) {
+        throw new Error('Failed to refresh Elastic rules');
+      }
+
+      const result = await response.json();
+      setElasticSync({
+        status: 'success',
+        message: result.message || 'Elastic rules synchronized successfully',
+        progress: 100
+      });
+
+      setTimeout(() => setElasticSync({ status: 'idle', message: '', progress: 0 }), 3000);
+      refetchStatus();
+    } catch (error: any) {
+      setElasticSync({ status: 'error', message: error.message || 'Failed to sync Elastic rules', progress: 0 });
+    }
+  };
+
+  const runAzureSync = async () => {
+    setAzureSync({ status: 'running', message: 'Refreshing Azure Sentinel rules...', progress: 30 });
+
+    try {
+      const response = await fetch('/api/admin/maintenance/refresh-azure', { method: 'POST' });
+      if (!response.ok) {
+        throw new Error('Failed to refresh Azure Sentinel rules');
+      }
+
+      const result = await response.json();
+      setAzureSync({
+        status: 'success',
+        message: result.message || 'Azure Sentinel rules synchronized successfully',
+        progress: 100
+      });
+
+      setTimeout(() => setAzureSync({ status: 'idle', message: '', progress: 0 }), 3000);
+      refetchStatus();
+    } catch (error: any) {
+      setAzureSync({ status: 'error', message: error.message || 'Failed to sync Azure Sentinel rules', progress: 0 });
+    }
+  };
+
+  const runCtidSync = async () => {
+    setCtidSync({ status: 'running', message: 'Refreshing CTID mappings...', progress: 30 });
+
+    try {
+      const response = await fetch('/api/admin/maintenance/refresh-ctid', { method: 'POST' });
+      if (!response.ok) {
+        throw new Error('Failed to refresh CTID mappings');
+      }
+
+      const result = await response.json();
+      setCtidSync({
+        status: 'success',
+        message: result.message || 'CTID mappings synchronized successfully',
+        progress: 100
+      });
+
+      setTimeout(() => setCtidSync({ status: 'idle', message: '', progress: 0 }), 3000);
+      refetchStatus();
+    } catch (error: any) {
+      setCtidSync({ status: 'error', message: error.message || 'Failed to sync CTID mappings', progress: 0 });
     }
   };
 
@@ -94,6 +204,58 @@ export default function AdminTasks() {
     // Show info message since seeding requires CLI
     setTimeout(() => setDbSeed({ status: 'idle', message: '', progress: 0 }), 5000);
   };
+
+  const filteredAliases = (aliases || []).filter((alias) => {
+    const needle = aliasSearch.trim().toLowerCase();
+    if (!needle) return true;
+    return (
+      alias.alias.toLowerCase().includes(needle) ||
+      alias.productName.toLowerCase().includes(needle) ||
+      alias.vendor.toLowerCase().includes(needle)
+    );
+  });
+
+  const saveAlias = async (aliasId: number) => {
+    const nextValue = (aliasEdits[aliasId] || '').trim();
+    if (!nextValue) return;
+
+    setAliasSaving((prev) => ({ ...prev, [aliasId]: true }));
+    try {
+      const response = await fetch(`/api/admin/aliases/${aliasId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ alias: nextValue }),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to update alias');
+      }
+      await response.json();
+      setAliasEdits((prev) => {
+        const copy = { ...prev };
+        delete copy[aliasId];
+        return copy;
+      });
+      refetchStatus();
+    } catch {
+      // ignore for now; keep edit state
+    } finally {
+      setAliasSaving((prev) => ({ ...prev, [aliasId]: false }));
+    }
+  };
+
+  useEffect(() => {
+    if (!autoRefreshLogs) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      refetchStatus();
+    }, 5000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [autoRefreshLogs, refetchStatus]);
 
   const getStatusIcon = (status: TaskStatus) => {
     switch (status) {
@@ -123,7 +285,7 @@ export default function AdminTasks() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <Sidebar />
+      <Sidebar variant="dashboard" />
 
       <main className="flex-1 overflow-auto">
         <div className="grid-pattern min-h-full">
@@ -181,6 +343,9 @@ export default function AdminTasks() {
                         {systemStatus.stix?.techniques || 0}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">Techniques loaded</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Last Sync: {systemStatus.lastMitreSync ? new Date(systemStatus.lastMitreSync).toLocaleDateString() : 'Never'}
+                      </p>
                     </div>
 
                     <div className="p-4 rounded-lg bg-background/50 border border-border">
@@ -269,23 +434,227 @@ export default function AdminTasks() {
                 </CardContent>
               </Card>
 
-              {/* STIX Initialize */}
+              {/* Splunk Sync */}
+              <Card className="bg-card/50 backdrop-blur border-border">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2">
+                      <GitBranch className="w-5 h-5 text-primary" />
+                      Splunk Rules Sync
+                    </CardTitle>
+                    {getStatusBadge(splunkSync.status)}
+                  </div>
+                  <CardDescription>
+                    Update local Splunk security content repository from GitHub
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="text-sm text-muted-foreground">
+                    <p>Synchronizes the local Splunk detections cache with the latest Splunk security_content repository.</p>
+                  </div>
+
+                  {splunkSync.status !== 'idle' && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        {getStatusIcon(splunkSync.status)}
+                        <span className="text-sm">{splunkSync.message}</span>
+                      </div>
+                      {splunkSync.status === 'running' && (
+                        <Progress value={splunkSync.progress} className="h-2" />
+                      )}
+                    </div>
+                  )}
+
+                  <Button
+                    className="w-full"
+                    onClick={runSplunkSync}
+                    disabled={splunkSync.status === 'running'}
+                  >
+                    {splunkSync.status === 'running' ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Syncing...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Sync Splunk Rules
+                      </>
+                    )}
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {/* Elastic Sync */}
+              <Card className="bg-card/50 backdrop-blur border-border">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2">
+                      <GitBranch className="w-5 h-5 text-primary" />
+                      Elastic Rules Sync
+                    </CardTitle>
+                    {getStatusBadge(elasticSync.status)}
+                  </div>
+                  <CardDescription>
+                    Update local Elastic detection rules repository from GitHub
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="text-sm text-muted-foreground">
+                    <p>Synchronizes the local Elastic detection rules cache with the latest elastic/detection-rules repository.</p>
+                  </div>
+
+                  {elasticSync.status !== 'idle' && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        {getStatusIcon(elasticSync.status)}
+                        <span className="text-sm">{elasticSync.message}</span>
+                      </div>
+                      {elasticSync.status === 'running' && (
+                        <Progress value={elasticSync.progress} className="h-2" />
+                      )}
+                    </div>
+                  )}
+
+                  <Button
+                    className="w-full"
+                    onClick={runElasticSync}
+                    disabled={elasticSync.status === 'running'}
+                  >
+                    {elasticSync.status === 'running' ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Syncing...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Sync Elastic Rules
+                      </>
+                    )}
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {/* Azure Sentinel Sync */}
+              <Card className="bg-card/50 backdrop-blur border-border">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2">
+                      <GitBranch className="w-5 h-5 text-primary" />
+                      Azure Sentinel Sync
+                    </CardTitle>
+                    {getStatusBadge(azureSync.status)}
+                  </div>
+                  <CardDescription>
+                    Update local Azure Sentinel analytic rules repository from GitHub
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="text-sm text-muted-foreground">
+                    <p>Synchronizes the local Azure Sentinel rules cache with the latest Azure/Azure-Sentinel repository.</p>
+                  </div>
+
+                  {azureSync.status !== 'idle' && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        {getStatusIcon(azureSync.status)}
+                        <span className="text-sm">{azureSync.message}</span>
+                      </div>
+                      {azureSync.status === 'running' && (
+                        <Progress value={azureSync.progress} className="h-2" />
+                      )}
+                    </div>
+                  )}
+
+                  <Button
+                    className="w-full"
+                    onClick={runAzureSync}
+                    disabled={azureSync.status === 'running'}
+                  >
+                    {azureSync.status === 'running' ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Syncing...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Sync Azure Sentinel
+                      </>
+                    )}
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {/* CTID Sync */}
+              <Card className="bg-card/50 backdrop-blur border-border">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2">
+                      <GitBranch className="w-5 h-5 text-primary" />
+                      CTID Mappings Sync
+                    </CardTitle>
+                    {getStatusBadge(ctidSync.status)}
+                  </div>
+                  <CardDescription>
+                    Update local CTID mappings repository from GitHub
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="text-sm text-muted-foreground">
+                    <p>Synchronizes the local CTID mappings cache with the latest mappings-explorer repository.</p>
+                  </div>
+
+                  {ctidSync.status !== 'idle' && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        {getStatusIcon(ctidSync.status)}
+                        <span className="text-sm">{ctidSync.message}</span>
+                      </div>
+                      {ctidSync.status === 'running' && (
+                        <Progress value={ctidSync.progress} className="h-2" />
+                      )}
+                    </div>
+                  )}
+
+                  <Button
+                    className="w-full"
+                    onClick={runCtidSync}
+                    disabled={ctidSync.status === 'running'}
+                  >
+                    {ctidSync.status === 'running' ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Syncing...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Sync CTID Mappings
+                      </>
+                    )}
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {/* MITRE Sync */}
               <Card className="bg-card/50 backdrop-blur border-border">
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <CardTitle className="flex items-center gap-2">
                       <Shield className="w-5 h-5 text-primary" />
-                      MITRE STIX Reload
+                      MITRE Data Sync
                     </CardTitle>
                     {getStatusBadge(stixInit.status)}
                   </div>
                   <CardDescription>
-                    Reload MITRE ATT&CK data from STIX bundle
+                    Refresh data components and detection strategies from STIX
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="text-sm text-muted-foreground">
-                    <p>Reloads techniques, tactics, data sources, and detection strategies from the MITRE STIX data bundle.</p>
+                    <p>Flattens the latest MITRE STIX bundle and upserts definitions without overwriting custom mappings.</p>
                   </div>
 
                   {stixInit.status !== 'idle' && (
@@ -308,12 +677,12 @@ export default function AdminTasks() {
                     {stixInit.status === 'running' ? (
                       <>
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Loading...
+                        Syncing...
                       </>
                     ) : (
                       <>
                         <Zap className="w-4 h-4 mr-2" />
-                        Reload STIX Data
+                        Update MITRE Data
                       </>
                     )}
                   </Button>
@@ -366,6 +735,84 @@ export default function AdminTasks() {
 
             {/* Quick Stats Tables */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Repo Stats */}
+              <Card className="bg-card/50 backdrop-blur border-border">
+                <CardHeader>
+                  <CardTitle className="text-lg">Repository Stats</CardTitle>
+                  <CardDescription>Local rule cache status and counts</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {systemStatus?.repos?.stats ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between p-3 rounded-lg bg-background/50">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="bg-purple-500/10 text-purple-400 border-purple-500/30">Sigma</Badge>
+                          <span className="text-sm text-muted-foreground">Rules</span>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-mono font-bold">{systemStatus.repos.stats.sigma.rules}</div>
+                          <div className="text-xs text-muted-foreground">
+                            Updated: {systemStatus.repos.sigma.lastUpdated ? new Date(systemStatus.repos.sigma.lastUpdated).toLocaleDateString() : 'Unknown'}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between p-3 rounded-lg bg-background/50">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="bg-green-500/10 text-green-400 border-green-500/30">Splunk</Badge>
+                          <span className="text-sm text-muted-foreground">Detections</span>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-mono font-bold">{systemStatus.repos.stats.splunk.detections}</div>
+                          <div className="text-xs text-muted-foreground">
+                            Updated: {systemStatus.repos.splunk.lastUpdated ? new Date(systemStatus.repos.splunk.lastUpdated).toLocaleDateString() : 'Unknown'}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between p-3 rounded-lg bg-background/50">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="bg-orange-500/10 text-orange-400 border-orange-500/30">Elastic</Badge>
+                          <span className="text-sm text-muted-foreground">Rules</span>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-mono font-bold">{systemStatus.repos.stats.elastic.rules}</div>
+                          <div className="text-xs text-muted-foreground">
+                            Updated: {systemStatus.repos.elastic.lastUpdated ? new Date(systemStatus.repos.elastic.lastUpdated).toLocaleDateString() : 'Unknown'}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between p-3 rounded-lg bg-background/50">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="bg-sky-500/10 text-sky-400 border-sky-500/30">Azure Sentinel</Badge>
+                          <span className="text-sm text-muted-foreground">Rules</span>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-mono font-bold">{systemStatus.repos.stats.azure.rules}</div>
+                          <div className="text-xs text-muted-foreground">
+                            Updated: {systemStatus.repos.azure.lastUpdated ? new Date(systemStatus.repos.azure.lastUpdated).toLocaleDateString() : 'Unknown'}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between p-3 rounded-lg bg-background/50">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="bg-blue-500/10 text-blue-400 border-blue-500/30">CTID</Badge>
+                          <span className="text-sm text-muted-foreground">Mappings</span>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-mono font-bold">{systemStatus.repos.stats.ctid.mappings}</div>
+                          <div className="text-xs text-muted-foreground">
+                            Updated: {systemStatus.repos.ctid.lastUpdated ? new Date(systemStatus.repos.ctid.lastUpdated).toLocaleDateString() : 'Unknown'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-muted-foreground">
+                      Repository stats are unavailable.
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
               {/* Products by Source */}
               <Card className="bg-card/50 backdrop-blur border-border">
                 <CardHeader>
@@ -408,29 +855,119 @@ export default function AdminTasks() {
                 </CardContent>
               </Card>
 
-              {/* Recent Aliases */}
+              {/* Product Aliases */}
               <Card className="bg-card/50 backdrop-blur border-border">
                 <CardHeader>
                   <CardTitle className="text-lg">Product Aliases</CardTitle>
-                  <CardDescription>Search term synonyms for better matching</CardDescription>
+                  <CardDescription>Search and edit product aliases</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-2 max-h-[200px] overflow-auto">
-                    {aliases && aliases.slice(0, 8).map(alias => (
-                      <div key={alias.id} className="flex items-center justify-between p-2 rounded bg-background/50 text-sm">
-                        <span className="font-mono text-muted-foreground">{alias.alias}</span>
-                        <span className="text-foreground">{alias.productName}</span>
+                  <Dialog open={aliasDialogOpen} onOpenChange={setAliasDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" className="w-full">
+                        Manage Aliases
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-3xl">
+                      <DialogHeader>
+                        <DialogTitle>Product Aliases</DialogTitle>
+                        <DialogDescription>
+                          Search and edit aliases used for product matching.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <Input
+                          placeholder="Search aliases or products..."
+                          value={aliasSearch}
+                          onChange={(event) => setAliasSearch(event.target.value)}
+                        />
+                        <ScrollArea className="h-[420px] rounded-md border border-border bg-background/50 p-3">
+                          <div className="space-y-3">
+                            {filteredAliases.map((alias) => {
+                              const currentValue = aliasEdits[alias.id] ?? alias.alias;
+                              return (
+                                <div key={alias.id} className="flex items-center gap-3 rounded-md border border-border bg-card/50 p-3">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-sm font-medium text-foreground">
+                                      {alias.productName}
+                                      <span className="text-xs text-muted-foreground ml-2">{alias.vendor}</span>
+                                    </div>
+                                    <Input
+                                      value={currentValue}
+                                      onChange={(event) =>
+                                        setAliasEdits((prev) => ({
+                                          ...prev,
+                                          [alias.id]: event.target.value,
+                                        }))
+                                      }
+                                      className="mt-2"
+                                    />
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    onClick={() => saveAlias(alias.id)}
+                                    disabled={aliasSaving[alias.id] || currentValue.trim() === alias.alias}
+                                  >
+                                    {aliasSaving[alias.id] ? 'Saving...' : 'Save'}
+                                  </Button>
+                                </div>
+                              );
+                            })}
+                            {filteredAliases.length === 0 && (
+                              <div className="text-sm text-muted-foreground text-center py-6">
+                                No aliases match your search.
+                              </div>
+                            )}
+                          </div>
+                        </ScrollArea>
                       </div>
-                    ))}
-                    {aliases && aliases.length > 8 && (
-                      <p className="text-xs text-muted-foreground text-center pt-2">
-                        +{aliases.length - 8} more aliases
-                      </p>
-                    )}
-                  </div>
+                    </DialogContent>
+                  </Dialog>
                 </CardContent>
               </Card>
             </div>
+
+            <Separator />
+
+            {/* Startup Logs */}
+            <Card className="bg-card/50 backdrop-blur border-border">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-lg">Startup Logs</CardTitle>
+                    <CardDescription>Latest container startup steps</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={() => refetchStatus()}>
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Refresh
+                    </Button>
+                    <Button
+                      variant={autoRefreshLogs ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setAutoRefreshLogs((current) => !current)}
+                    >
+                      {autoRefreshLogs ? 'Auto Refreshing' : 'Auto Refresh'}
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {systemStatus?.startupLog && systemStatus.startupLog.length > 0 ? (
+                  <ScrollArea className="h-60 rounded-md border border-border bg-background/50 p-3 font-mono text-xs text-muted-foreground">
+                    <div className="space-y-1">
+                      {systemStatus.startupLog.map((line, idx) => (
+                        <div key={`startup-log-${idx}`}>{line}</div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                ) : (
+                  <div className="text-sm text-muted-foreground">
+                    No startup logs available yet.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
           </div>
         </div>

@@ -1,43 +1,55 @@
-import { useState, useEffect } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { 
   Search, 
-  Shield, 
   Database, 
-  Layers, 
-  Home,
-  FileText,
-  Settings,
-  HelpCircle,
-  ExternalLink,
-  BookOpen,
-  Boxes,
-  Sun,
-  Moon,
-  Loader2
+  Loader2,
+  CheckCircle2,
+  Shield,
+  ChevronRight,
+  Activity
 } from 'lucide-react';
+import { Link, useLocation } from 'wouter';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { searchProducts, Asset, ctidProducts, detectionStrategies, dataComponents } from '@/lib/mitreData';
+import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Asset, ctidProducts, dataComponents } from '@/lib/mitreData';
 import { ProductView } from '@/components/ProductView';
-import { useTheme } from '@/lib/theme';
-import { useSearchProducts, type Product } from '@/hooks/useProducts';
+import { useSearchProducts, useAliases, useAddAlias, useDeleteAlias, useDeleteProduct, useProducts, type Product } from '@/hooks/useProducts';
+import { Sidebar } from '@/components/Sidebar';
+import { getProductMapping } from '@/lib/v18Data';
+import { Button } from '@/components/ui/button';
+import { useToast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
 
 type ViewState = 'search' | 'product';
 
-const categories = [
-  { id: 'all', label: 'All Products' },
-  { id: 'windows', label: 'Windows' },
-  { id: 'linux', label: 'Linux' },
-  { id: 'cloud', label: 'Cloud' },
-  { id: 'network', label: 'Network' },
+const platformOptions = [
+  'All Platforms',
+  'Windows Endpoint',
+  'Linux Server/Endpoint',
+  'macOS Endpoint',
+  'Identity Provider',
+  'Cloud Infrastructure',
+  'SaaS Application',
+  'Container/Kubernetes',
+  'Network Devices',
+  'Office Suite',
+  'ESXi / VMware',
 ];
 
-const sidebarNav = [
-  { icon: Home, label: 'Products', active: true },
-  { icon: Layers, label: 'Data Components' },
-  { icon: FileText, label: 'Detection Strategies' },
-  { icon: BookOpen, label: 'Documentation' },
-];
+const platformMatchMap: Record<string, string[]> = {
+  'Windows Endpoint': ['Windows'],
+  'Linux Server/Endpoint': ['Linux'],
+  'macOS Endpoint': ['macOS'],
+  'Identity Provider': ['Azure AD', 'Identity Provider'],
+  'Cloud Infrastructure': ['IaaS', 'Cloud', 'Azure', 'AWS', 'GCP'],
+  'SaaS Application': ['SaaS', 'Office 365'],
+  'Container/Kubernetes': ['Containers', 'Kubernetes'],
+  'Network Devices': ['Network'],
+  'Office Suite': ['Office 365'],
+  'ESXi / VMware': ['ESXi'],
+};
 
 function convertProductToAsset(product: Product): Asset {
   return {
@@ -54,12 +66,20 @@ function convertProductToAsset(product: Product): Asset {
 }
 
 export default function Dashboard() {
+  const [location] = useLocation();
   const [view, setView] = useState<ViewState>('search');
   const [selectedProduct, setSelectedProduct] = useState<Asset | null>(null);
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [activeCategory, setActiveCategory] = useState('all');
-  const { theme, toggleTheme } = useTheme();
+  const [activeCategories, setActiveCategories] = useState<string[]>(['All Platforms']);
+  const [selectedAliasProduct, setSelectedAliasProduct] = useState('');
+  const [newAlias, setNewAlias] = useState('');
+  const [editingAliasId, setEditingAliasId] = useState<number | null>(null);
+  const [editingAliasValue, setEditingAliasValue] = useState('');
+  const [showAliasOptions, setShowAliasOptions] = useState(false);
+  const [aliasTouched, setAliasTouched] = useState(false);
+  const [selectedCustomProducts, setSelectedCustomProducts] = useState<Set<string>>(new Set());
+  const { toast } = useToast();
 
   // Debounce search query
   useEffect(() => {
@@ -69,17 +89,69 @@ export default function Dashboard() {
     return () => clearTimeout(timer);
   }, [query]);
 
+  useEffect(() => {
+    if (!query.trim()) {
+      setNewAlias('');
+      setSelectedAliasProduct('');
+      setAliasTouched(false);
+      return;
+    }
+    if (!aliasTouched) {
+      setNewAlias(query.trim());
+    }
+  }, [aliasTouched, query]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const productId = params.get('productId');
+    if (!productId) return;
+    fetch(`/api/products/${encodeURIComponent(productId)}`)
+      .then(res => res.ok ? res.json() : null)
+      .then((data: Product | null) => {
+        if (!data) return;
+        setSelectedProduct(convertProductToAsset(data));
+        setView('product');
+      })
+      .catch(() => undefined);
+  }, [location]);
+
   const { data: apiProducts, isLoading } = useSearchProducts(debouncedQuery);
+  const { data: allProducts = [] } = useProducts();
+  const { data: aliases = [] } = useAliases();
+  const addAlias = useAddAlias();
+  const deleteAlias = useDeleteAlias();
+  const deleteProduct = useDeleteProduct();
+
+  const apiAssets = useMemo(() => allProducts.map(convertProductToAsset), [allProducts]);
+  const mergedProducts = useMemo(() => {
+    const map = new Map<string, Asset>();
+    for (const product of [...ctidProducts, ...apiAssets]) {
+      if (!map.has(product.id)) {
+        map.set(product.id, product);
+      }
+    }
+    return Array.from(map.values());
+  }, [apiAssets]);
 
   const filteredProducts = query.trim() 
     ? (apiProducts || []).map(convertProductToAsset)
-    : ctidProducts.filter(p => {
-        if (activeCategory === 'all') return true;
-        if (activeCategory === 'windows') return p.platforms.includes('Windows');
-        if (activeCategory === 'linux') return p.platforms.includes('Linux');
-        if (activeCategory === 'cloud') return p.platforms.includes('Azure AD');
-        return true;
+    : mergedProducts.filter(p => {
+        if (activeCategories.includes('All Platforms')) return true;
+        return activeCategories.some(category => {
+          const matches = platformMatchMap[category] || [category];
+          return matches.some(match => p.platforms.includes(match));
+        });
       });
+
+  const counts = filteredProducts.reduce(
+    (acc, product) => {
+      acc.total += 1;
+      if (product.source === 'ctid') acc.ctid += 1;
+      if (product.source === 'custom') acc.custom += 1;
+      return acc;
+    },
+    { total: 0, ctid: 0, custom: 0 }
+  );
 
   const handleSelectProduct = (product: Asset) => {
     setSelectedProduct(product);
@@ -91,108 +163,160 @@ export default function Dashboard() {
     setSelectedProduct(null);
   };
 
+  const getSourceBadge = (source: Asset['source']) => {
+    switch (source) {
+      case 'ctid':
+        return <Badge className="bg-green-500/20 text-green-400 border-green-500/30">CTID</Badge>;
+      case 'custom':
+        return <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">Custom</Badge>;
+      case 'ai-pending':
+        return <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">Pending</Badge>;
+    }
+  };
+
+  const aliasMatches = query.trim()
+    ? aliases.filter((alias) => {
+        const haystack = `${alias.alias} ${alias.productName} ${alias.vendor}`.toLowerCase();
+        return haystack.includes(query.toLowerCase());
+      })
+    : [];
+
+  const aliasProductOptions = Array.from(
+    new Set([...(apiProducts || []), ...allProducts].map((product) => product.productName))
+  );
+  const aliasProductSuggestions = selectedAliasProduct.trim()
+    ? aliasProductOptions.filter((name) =>
+        name.toLowerCase().includes(selectedAliasProduct.toLowerCase())
+      )
+    : aliasProductOptions;
+  const isKnownProduct = selectedAliasProduct.trim()
+    ? aliasProductOptions.some(
+        (name) => name.toLowerCase() === selectedAliasProduct.toLowerCase()
+      )
+    : false;
+
+  const handleAddAlias = async () => {
+    if (!newAlias.trim() || !selectedAliasProduct.trim()) return;
+    await addAlias.mutateAsync({
+      productName: selectedAliasProduct,
+      alias: newAlias.trim(),
+    });
+    setNewAlias('');
+  };
+
+  const handleEditAlias = (aliasId: number, currentAlias: string) => {
+    setEditingAliasId(aliasId);
+    setEditingAliasValue(currentAlias);
+  };
+
+  const handleSaveAliasEdit = async (aliasId: number, productName: string) => {
+    if (!editingAliasValue.trim()) return;
+    await deleteAlias.mutateAsync(aliasId);
+    await addAlias.mutateAsync({
+      productName,
+      alias: editingAliasValue.trim(),
+    });
+    setEditingAliasId(null);
+    setEditingAliasValue('');
+  };
+
+  const selectableCustomIds = useMemo(
+    () => filteredProducts.filter(product => product.source === 'custom').map(product => product.id),
+    [filteredProducts]
+  );
+
+  useEffect(() => {
+    if (selectedCustomProducts.size === 0) return;
+    setSelectedCustomProducts(prev => {
+      const allowed = new Set(selectableCustomIds);
+      const next = new Set(Array.from(prev).filter(id => allowed.has(id)));
+      if (next.size === prev.size) return prev;
+      return next;
+    });
+  }, [selectableCustomIds, selectedCustomProducts.size]);
+
+  const allCustomSelected = selectableCustomIds.length > 0 &&
+    selectableCustomIds.every(id => selectedCustomProducts.has(id));
+
+  const toggleCustomSelection = (productId: string, checked: boolean) => {
+    setSelectedCustomProducts(prev => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(productId);
+      } else {
+        next.delete(productId);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllCustom = (checked: boolean) => {
+    if (!checked) {
+      setSelectedCustomProducts(new Set());
+      return;
+    }
+    setSelectedCustomProducts(new Set(selectableCustomIds));
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedCustomProducts.size === 0) return;
+    const confirmed = window.confirm(`Delete ${selectedCustomProducts.size} custom products? This cannot be undone.`);
+    if (!confirmed) return;
+    try {
+      await Promise.all(Array.from(selectedCustomProducts).map(id => deleteProduct.mutateAsync(id)));
+      setSelectedCustomProducts(new Set());
+      toast({
+        title: 'Products deleted',
+        description: 'Selected custom products have been removed.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Failed to delete products',
+        description: error instanceof Error ? error.message : 'Unexpected error',
+        variant: 'destructive',
+      });
+    }
+  };
+
   return (
     <div className="min-h-screen flex bg-background">
-      <aside className="w-60 border-r border-border bg-sidebar flex-shrink-0 flex flex-col">
-        <div className="p-4 border-b border-border">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-              <Shield className="w-5 h-5 text-primary-foreground" />
-            </div>
-            <span className="font-semibold text-foreground">OpenTidal</span>
-          </div>
-        </div>
-
-        <div className="p-3">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              placeholder="Search..."
-              className="pl-8 h-9 text-sm bg-background"
-              data-testid="input-sidebar-search"
-            />
-          </div>
-        </div>
-
-        <nav className="flex-1 px-3">
-          <div className="space-y-1">
-            {sidebarNav.map((item) => (
-              <button
-                key={item.label}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm rounded-md transition-colors ${
-                  item.active 
-                    ? 'bg-primary/10 text-primary font-medium' 
-                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                }`}
-                data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}
-              >
-                <item.icon className="w-4 h-4" />
-                {item.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="mt-6 pt-6 border-t border-border">
-            <p className="px-3 text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
-              Resources
-            </p>
-            <div className="space-y-1">
-              <a
-                href="https://attack.mitre.org"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2.5 px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground rounded-md"
-              >
-                <ExternalLink className="w-4 h-4" />
-                MITRE ATT&CK
-              </a>
-              <a
-                href="https://github.com/center-for-threat-informed-defense"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2.5 px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground rounded-md"
-              >
-                <Boxes className="w-4 h-4" />
-                CTID GitHub
-              </a>
-            </div>
-          </div>
-        </nav>
-
-        <div className="p-3 border-t border-border">
-          <button 
-            onClick={toggleTheme}
-            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground rounded-md"
-            data-testid="button-theme-toggle"
-          >
-            {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
-            {theme === 'light' ? 'Dark Mode' : 'Light Mode'}
-          </button>
-          <button className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground rounded-md">
-            <Settings className="w-4 h-4" />
-            Settings
-          </button>
-          <button className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground rounded-md">
-            <HelpCircle className="w-4 h-4" />
-            Help
-          </button>
-        </div>
-      </aside>
+      <Sidebar variant="dashboard" />
 
       <main className="flex-1 overflow-auto">
         {view === 'product' && selectedProduct ? (
-          <ProductView product={selectedProduct} onBack={handleBack} />
+            <ProductView product={selectedProduct} onBack={handleBack} />
         ) : (
-          <div className="p-8">
-            <div className="mb-8">
+          <div className="p-8 space-y-6">
+            <header>
               <h1 className="text-2xl font-semibold text-foreground">Security Products</h1>
               <p className="text-muted-foreground mt-1">
                 Browse CTID-verified product mappings to MITRE ATT&CK detection strategies
               </p>
+            </header>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Card className="bg-card/50 backdrop-blur border-border">
+                <CardContent className="pt-6">
+                  <div className="text-3xl font-bold text-primary">{counts.total}</div>
+                  <div className="text-sm text-muted-foreground">Total Products</div>
+                </CardContent>
+              </Card>
+              <Card className="bg-card/50 backdrop-blur border-border">
+                <CardContent className="pt-6">
+                  <div className="text-3xl font-bold text-green-400">{counts.ctid}</div>
+                  <div className="text-sm text-muted-foreground">CTID Verified</div>
+                </CardContent>
+              </Card>
+              <Card className="bg-card/50 backdrop-blur border-border">
+                <CardContent className="pt-6">
+                  <div className="text-3xl font-bold text-blue-400">{counts.custom}</div>
+                  <div className="text-sm text-muted-foreground">Custom Mappings</div>
+                </CardContent>
+              </Card>
             </div>
 
             <div className="mb-6">
-              <div className="relative max-w-xl">
+              <div className="relative w-full">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                 <Input
                   value={query}
@@ -204,22 +328,177 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2 mb-8">
-              {categories.map((cat) => (
+            {query.trim() && (
+              <Card className="bg-card/50 backdrop-blur border-border">
+                <CardContent className="p-4 space-y-4">
+                  <div>
+                    <h2 className="text-sm font-semibold text-foreground mb-1">Step 1: Review matching aliases</h2>
+                    <p className="text-xs text-muted-foreground mb-3">
+                      These aliases already exist. Use them to find the right product, or edit them if the wording is off.
+                    </p>
+                    {aliasMatches.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No aliases found for this query.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {aliasMatches.slice(0, 8).map((alias) => (
+                          <div
+                            key={alias.id}
+                            className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-background/60 px-3 py-2"
+                          >
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge variant="secondary" className="text-xs">{alias.alias}</Badge>
+                              <span className="text-xs text-muted-foreground">
+                                {alias.vendor} • {alias.productName}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs">
+                              {editingAliasId === alias.id ? (
+                                <>
+                                  <Input
+                                    value={editingAliasValue}
+                                    onChange={(e) => setEditingAliasValue(e.target.value)}
+                                    className="h-8 w-40 text-xs"
+                                  />
+                                  <button
+                                    className="text-primary hover:underline"
+                                    onClick={() => handleSaveAliasEdit(alias.id, alias.productName)}
+                                  >
+                                    Save
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  className="text-muted-foreground hover:text-foreground"
+                                  onClick={() => handleEditAlias(alias.id, alias.alias)}
+                                >
+                                  Edit
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="border-t border-border pt-4">
+                    <h2 className="text-sm font-semibold text-foreground mb-1">Step 2: Add a new alias</h2>
+                    <p className="text-xs text-muted-foreground mb-3">
+                      Add a new search term that should map to a product. You can pick an existing product or type a new name.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <div className="relative min-w-[220px] flex-1">
+                        <Input
+                          value={selectedAliasProduct}
+                          onChange={(e) => setSelectedAliasProduct(e.target.value)}
+                          onFocus={() => setShowAliasOptions(true)}
+                          onBlur={() => setTimeout(() => setShowAliasOptions(false), 100)}
+                          placeholder="Product name"
+                          className="h-9 w-full"
+                          data-testid="select-alias-product"
+                        />
+                        {showAliasOptions && aliasProductSuggestions.length > 0 && (
+                          <div className="absolute z-20 mt-2 w-full max-h-48 overflow-y-auto rounded-md border border-border bg-popover shadow-sm">
+                            {aliasProductSuggestions.map((productName) => (
+                              <button
+                                key={productName}
+                                type="button"
+                                className="block w-full px-3 py-2 text-left text-sm text-foreground hover:bg-accent"
+                                onMouseDown={() => setSelectedAliasProduct(productName)}
+                              >
+                                {productName}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <span className="flex h-9 items-center text-sm text-muted-foreground">=</span>
+                      <Input
+                        value={newAlias}
+                        onChange={(e) => {
+                          setNewAlias(e.target.value);
+                          setAliasTouched(true);
+                        }}
+                        placeholder={`Alias for "${query}"`}
+                        className="h-9 flex-1 min-w-[200px]"
+                        data-testid="input-add-alias"
+                      />
+                      <button
+                        className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-60"
+                        onClick={handleAddAlias}
+                        disabled={addAlias.isPending || !isKnownProduct}
+                        data-testid="button-add-alias"
+                      >
+                        Add Alias
+                      </button>
+                    </div>
+                    {!isKnownProduct && selectedAliasProduct.trim() && (
+                      <p className="text-xs text-muted-foreground">
+                        Select an existing product to attach the alias.
+                      </p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              {platformOptions.map((platform) => (
                 <button
-                  key={cat.id}
-                  onClick={() => setActiveCategory(cat.id)}
+                  key={platform}
+                  onClick={() => {
+                    setActiveCategories((prev) => {
+                      if (platform === 'All Platforms') return ['All Platforms'];
+                      const next = prev.filter(item => item !== 'All Platforms');
+                      if (next.includes(platform)) {
+                        const filtered = next.filter(item => item !== platform);
+                        return filtered.length === 0 ? ['All Platforms'] : filtered;
+                      }
+                      return [...next, platform];
+                    });
+                  }}
                   className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${
-                    activeCategory === cat.id
-                      ? 'bg-foreground text-background border-foreground'
+                    activeCategories.includes(platform)
+                      ? 'bg-muted text-foreground border-foreground/30'
                       : 'bg-background text-foreground border-border hover:border-foreground/30'
                   }`}
-                  data-testid={`filter-${cat.id}`}
+                  data-testid={`filter-${platform.toLowerCase().replace(/\s+/g, '-')}`}
                 >
-                  {cat.label}
+                  {platform}
                 </button>
               ))}
             </div>
+
+            {selectableCustomIds.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card/50 px-3 py-2">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Checkbox
+                    checked={allCustomSelected}
+                    onCheckedChange={(checked) => handleSelectAllCustom(Boolean(checked))}
+                  />
+                  <span>
+                    Select all custom ({selectedCustomProducts.size})
+                  </span>
+                  {selectedCustomProducts.size > 0 && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setSelectedCustomProducts(new Set())}
+                    >
+                      Clear
+                    </Button>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={handleBulkDelete}
+                  disabled={selectedCustomProducts.size === 0 || deleteProduct.isPending}
+                >
+                  Delete selected
+                </Button>
+              </div>
+            )}
 
             {isLoading && query.trim() ? (
               <div className="flex items-center justify-center py-16">
@@ -227,32 +506,74 @@ export default function Dashboard() {
                 <span className="ml-3 text-muted-foreground">Searching products...</span>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {filteredProducts.map((product) => (
-                  <button
-                    key={product.id}
-                    onClick={() => handleSelectProduct(product)}
-                    className="group p-5 bg-card rounded-lg border border-border hover:border-primary/50 hover:shadow-md transition-all text-left"
-                    data-testid={`card-product-${product.id}`}
-                  >
-                    <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center mb-4">
-                      <Database className="w-6 h-6 text-muted-foreground group-hover:text-primary transition-colors" />
-                    </div>
-                    <h3 className="font-medium text-foreground group-hover:text-primary transition-colors mb-1">
-                      {product.productName}
-                    </h3>
-                    <p className="text-sm text-muted-foreground mb-3">
-                      {product.vendor}
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {product.platforms.map(p => (
-                        <Badge key={p} variant="secondary" className="text-xs font-normal">
-                          {p}
-                        </Badge>
-                      ))}
-                    </div>
-                  </button>
-                ))}
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {filteredProducts.map((product) => {
+                  const mapping = getProductMapping(product.id);
+                  const isSelected = selectedCustomProducts.has(product.id);
+                  return (
+                    <Card 
+                      key={product.id}
+                      className={cn(
+                        "bg-background border-border hover:border-primary/50 transition-all cursor-pointer group",
+                        isSelected && "ring-2 ring-primary/30"
+                      )}
+                      onClick={() => handleSelectProduct(product)}
+                      data-testid={`card-product-${product.id}`}
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-sm text-muted-foreground">{product.vendor}</span>
+                              {getSourceBadge(product.source)}
+                            </div>
+                            <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors">
+                              {product.productName}
+                            </h3>
+                            {product.deployment && (
+                              <span className="text-xs text-muted-foreground">{product.deployment}</span>
+                            )}
+                            
+                            <div className="flex items-center gap-4 mt-3 text-xs">
+                              <div className="flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3 text-blue-400" />
+                                <span className="text-muted-foreground">
+                                  {product.dataComponentIds.length} Data Components
+                                </span>
+                              </div>
+                              {mapping && (
+                                <div className="flex items-center gap-1">
+                                  <Activity className="w-3 h-3 text-purple-400" />
+                                  <span className="text-muted-foreground">
+                                    {mapping.analytics.length} Analytics
+                                  </span>
+                                </div>
+                              )}
+                              {mapping && (
+                                <div className="flex items-center gap-1">
+                                  <Shield className="w-3 h-3 text-green-400" />
+                                  <span className="text-muted-foreground">
+                                    {mapping.techniques.length} Techniques
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex flex-col items-end gap-2">
+                            {product.source === 'custom' && (
+                              <Checkbox
+                                checked={isSelected}
+                                onClick={(event) => event.stopPropagation()}
+                                onCheckedChange={(checked) => toggleCustomSelection(product.id, Boolean(checked))}
+                              />
+                            )}
+                            <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             )}
 
@@ -263,25 +584,15 @@ export default function Dashboard() {
                 <p className="text-muted-foreground">
                   Try adjusting your search or filters
                 </p>
+                {query.trim() && (
+                  <div className="mt-6">
+                    <Link href={`/ai-mapper?q=${encodeURIComponent(query.trim())}`}>
+                      <Button>New Mapping</Button>
+                    </Link>
+                  </div>
+                )}
               </div>
             )}
-
-            <div className="mt-12 pt-8 border-t border-border">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="p-5 rounded-lg bg-muted/50">
-                  <div className="text-3xl font-bold text-foreground">{ctidProducts.length}</div>
-                  <div className="text-sm text-muted-foreground mt-1">CTID Products</div>
-                </div>
-                <div className="p-5 rounded-lg bg-muted/50">
-                  <div className="text-3xl font-bold text-foreground">{detectionStrategies.length}</div>
-                  <div className="text-sm text-muted-foreground mt-1">Detection Strategies</div>
-                </div>
-                <div className="p-5 rounded-lg bg-muted/50">
-                  <div className="text-3xl font-bold text-foreground">{Object.keys(dataComponents).length}</div>
-                  <div className="text-sm text-muted-foreground mt-1">Data Components</div>
-                </div>
-              </div>
-            </div>
           </div>
         )}
       </main>

@@ -9,12 +9,26 @@ export interface StixDetectionStrategy {
   analytics: StixAnalytic[];
 }
 
+export interface StixLogSource {
+  dataComponentId: string;
+  dataComponentName: string;
+  name: string;
+  channel?: string;
+}
+
+export interface StixMutableElement {
+  field: string;
+  description: string;
+}
+
 export interface StixAnalytic {
   id: string;
   name: string;
   description: string;
   platforms: string[];
   dataComponents: string[];
+  logSources: StixLogSource[];
+  mutableElements: StixMutableElement[];
 }
 
 export interface StixDataComponent {
@@ -34,15 +48,21 @@ export interface EnrichedCommunityMapping {
   techniqueNames: Record<string, string>;
 }
 
-export type ResourceType = 'ctid' | 'sigma' | 'elastic' | 'splunk' | 'mitre_stix';
+export type ResourceType = 'ctid' | 'sigma' | 'elastic' | 'splunk' | 'azure' | 'mitre_stix';
 
 export interface AnalyticMapping {
   id: string;
   name: string;
+  techniqueIds?: string[];
   description?: string;
+  howToImplement?: string;
   logSources?: string[];
   query?: string;
   source?: ResourceType;
+  sourceFile?: string;
+  validationStatus?: 'pending' | 'valid' | 'invalid' | 'uncertain';
+  aiConfidence?: number;
+  mutableElements?: string[];
 }
 
 export interface DataComponentMapping {
@@ -173,12 +193,18 @@ export function useAutoMappingWithAutoRun(
     }
 
     const idsKey = combinedTechniqueIds.join(',');
+    const platformList = Array.from(
+      new Set([platform, ...(hybridSelectors || [])].filter(Boolean))
+    );
     
     setStixLoading(true);
     fetch('/api/mitre-stix/techniques/mapping', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ techniqueIds: combinedTechniqueIds }),
+      body: JSON.stringify({
+        techniqueIds: combinedTechniqueIds,
+        platforms: platformList.length > 0 ? platformList : undefined,
+      }),
     })
       .then(res => res.json())
       .then(data => {
@@ -189,7 +215,7 @@ export function useAutoMappingWithAutoRun(
         console.error('Failed to fetch STIX mapping:', err);
         setStixLoading(false);
       });
-  }, [combinedTechniqueIds.join(',')]);
+  }, [combinedTechniqueIds.join(','), platform, hybridSelectors?.join(',')]);
 
   const enrichedMapping = useMemo((): EnrichedCommunityMapping | null => {
     if (!rawData?.mapping || rawData.status !== 'matched') {
@@ -214,8 +240,6 @@ export function useAutoMappingWithAutoRun(
     isLoading: statusQuery.isLoading || autoRunMutation.isPending || stixLoading,
     isAutoRunning: autoRunMutation.isPending,
     isStixLoading: stixLoading,
-    isHybridLoading: false,
-    hybridTechniques: [],
     baseTechniqueIds,
     combinedTechniqueIds,
     error: statusQuery.error || autoRunMutation.error,
@@ -229,5 +253,6 @@ export const RESOURCE_LABELS: Record<string, { label: string; color: string }> =
   sigma: { label: 'Sigma Rules', color: 'bg-purple-500' },
   elastic: { label: 'Elastic Rules', color: 'bg-orange-500' },
   splunk: { label: 'Splunk Content', color: 'bg-green-500' },
+  azure: { label: 'Azure Sentinel Rules', color: 'bg-sky-500' },
   mitre_stix: { label: 'MITRE STIX', color: 'bg-red-500' },
 };

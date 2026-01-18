@@ -49,7 +49,26 @@ export interface SystemStatus {
   };
   aliases: number;
   stix: Record<string, number>;
-  sigmaPath: string;
+  sigma?: {
+    exists: boolean;
+    lastUpdated?: string;
+  };
+  repos?: {
+    sigma: { exists: boolean; lastUpdated?: string };
+    splunk: { exists: boolean; lastUpdated?: string };
+    elastic: { exists: boolean; lastUpdated?: string };
+    azure: { exists: boolean; lastUpdated?: string };
+    ctid: { exists: boolean; lastUpdated?: string };
+    stats?: {
+      sigma: { rules: number };
+      splunk: { detections: number };
+      elastic: { rules: number };
+      azure: { rules: number };
+      ctid: { mappings: number };
+    };
+  };
+  startupLog?: string[];
+  lastMitreSync?: string | null;
   timestamp: string;
 }
 
@@ -149,6 +168,26 @@ async function addAliasApi(input: AddAliasInput): Promise<ProductAlias> {
     throw new Error(error.error || 'Failed to add alias');
   }
   return response.json();
+}
+
+async function deleteAliasApi(aliasId: number): Promise<void> {
+  const response = await fetch(`/api/admin/aliases/${aliasId}`, {
+    method: 'DELETE'
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to delete alias');
+  }
+}
+
+async function deleteProductApi(productId: string): Promise<void> {
+  const response = await fetch(`/api/admin/products/${encodeURIComponent(productId)}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to delete product');
+  }
 }
 
 // ============================================================
@@ -251,6 +290,36 @@ export function useAddAlias() {
     onSuccess: () => {
       // Invalidate aliases list
       queryClient.invalidateQueries({ queryKey: ['aliases'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'status'] });
+    },
+  });
+}
+
+/**
+ * Delete an alias
+ */
+export function useDeleteAlias() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: deleteAliasApi,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['aliases'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'status'] });
+    },
+  });
+}
+
+/**
+ * Delete a product
+ */
+export function useDeleteProduct() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: deleteProductApi,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['admin', 'status'] });
     },
   });
