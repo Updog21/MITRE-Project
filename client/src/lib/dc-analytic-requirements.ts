@@ -1,3 +1,5 @@
+import { platformMatchesAny } from '@shared/platforms';
+
 /**
  * Data Component Analytic Requirements
  *
@@ -2241,7 +2243,7 @@ export const DC_ANALYTIC_REQUIREMENTS: Record<string, AnalyticRequirement> = {
       'DNS enumeration tools',
     ],
     dataSource: 'Domain Name',
-    platforms: ['Enrichment'],
+    platforms: ['None'],
   },
 
   'Passive DNS': {
@@ -2262,7 +2264,7 @@ export const DC_ANALYTIC_REQUIREMENTS: Record<string, AnalyticRequirement> = {
       'Threat intel platforms',
     ],
     dataSource: 'Domain Name',
-    platforms: ['Enrichment'],
+    platforms: ['None'],
   },
 
   'Domain Registration': {
@@ -2284,7 +2286,7 @@ export const DC_ANALYTIC_REQUIREMENTS: Record<string, AnalyticRequirement> = {
       'Domain intel feeds',
     ],
     dataSource: 'Domain Name',
-    platforms: ['Enrichment'],
+    platforms: ['None'],
   },
 
   'Certificate Registration': {
@@ -2306,7 +2308,7 @@ export const DC_ANALYTIC_REQUIREMENTS: Record<string, AnalyticRequirement> = {
       'Cert intel feeds',
     ],
     dataSource: 'Certificate',
-    platforms: ['Enrichment'],
+    platforms: ['None'],
   },
 
   'Response Metadata': {
@@ -2329,7 +2331,7 @@ export const DC_ANALYTIC_REQUIREMENTS: Record<string, AnalyticRequirement> = {
       'Port scan results',
     ],
     dataSource: 'Internet Scan',
-    platforms: ['Enrichment'],
+    platforms: ['None'],
   },
 
   'Response Content': {
@@ -2352,7 +2354,7 @@ export const DC_ANALYTIC_REQUIREMENTS: Record<string, AnalyticRequirement> = {
       'Vulnerability scanner details',
     ],
     dataSource: 'Internet Scan',
-    platforms: ['Enrichment'],
+    platforms: ['None'],
   },
 
   'Social Media': {
@@ -2374,7 +2376,7 @@ export const DC_ANALYTIC_REQUIREMENTS: Record<string, AnalyticRequirement> = {
       'OSINT platforms',
     ],
     dataSource: 'Social Media',
-    platforms: ['Enrichment'],
+    platforms: ['None'],
   },
 
   'Email File': {
@@ -2420,7 +2422,7 @@ export const DC_ANALYTIC_REQUIREMENTS: Record<string, AnalyticRequirement> = {
       'vSphere events',
     ],
     dataSource: 'Snapshot',
-    platforms: ['IaaS', 'ESXi / Virtualization'],
+    platforms: ['IaaS', 'ESXi'],
   },
 
   'Snapshot Modification': {
@@ -2441,7 +2443,7 @@ export const DC_ANALYTIC_REQUIREMENTS: Record<string, AnalyticRequirement> = {
       'vSphere events',
     ],
     dataSource: 'Snapshot',
-    platforms: ['IaaS', 'ESXi / Virtualization'],
+    platforms: ['IaaS', 'ESXi'],
   },
 
   'Snapshot Deletion': {
@@ -2461,7 +2463,7 @@ export const DC_ANALYTIC_REQUIREMENTS: Record<string, AnalyticRequirement> = {
       'vSphere events',
     ],
     dataSource: 'Snapshot',
-    platforms: ['IaaS', 'ESXi / Virtualization'],
+    platforms: ['IaaS', 'ESXi'],
   },
 
   'Snapshot Enumeration': {
@@ -2481,7 +2483,7 @@ export const DC_ANALYTIC_REQUIREMENTS: Record<string, AnalyticRequirement> = {
       'vSphere events',
     ],
     dataSource: 'Snapshot',
-    platforms: ['IaaS', 'ESXi / Virtualization'],
+    platforms: ['IaaS', 'ESXi'],
   },
 
   'Snapshot Metadata': {
@@ -2502,7 +2504,7 @@ export const DC_ANALYTIC_REQUIREMENTS: Record<string, AnalyticRequirement> = {
       'Cloud snapshot inventory',
     ],
     dataSource: 'Snapshot',
-    platforms: ['IaaS', 'ESXi / Virtualization'],
+    platforms: ['IaaS', 'ESXi'],
   },
 
   'Volume Creation': {
@@ -2523,7 +2525,7 @@ export const DC_ANALYTIC_REQUIREMENTS: Record<string, AnalyticRequirement> = {
       'vSphere events',
     ],
     dataSource: 'Volume',
-    platforms: ['IaaS', 'ESXi / Virtualization'],
+    platforms: ['IaaS', 'ESXi'],
   },
 
   'Volume Modification': {
@@ -2544,7 +2546,7 @@ export const DC_ANALYTIC_REQUIREMENTS: Record<string, AnalyticRequirement> = {
       'vSphere events',
     ],
     dataSource: 'Volume',
-    platforms: ['IaaS', 'ESXi / Virtualization'],
+    platforms: ['IaaS', 'ESXi'],
   },
 
   'Volume Deletion': {
@@ -2564,7 +2566,7 @@ export const DC_ANALYTIC_REQUIREMENTS: Record<string, AnalyticRequirement> = {
       'vSphere events',
     ],
     dataSource: 'Volume',
-    platforms: ['IaaS', 'ESXi / Virtualization'],
+    platforms: ['IaaS', 'ESXi'],
   },
 
   'Volume Enumeration': {
@@ -2584,7 +2586,7 @@ export const DC_ANALYTIC_REQUIREMENTS: Record<string, AnalyticRequirement> = {
       'vSphere events',
     ],
     dataSource: 'Volume',
-    platforms: ['IaaS', 'ESXi / Virtualization'],
+    platforms: ['IaaS', 'ESXi'],
   },
 
   'Volume Metadata': {
@@ -2605,7 +2607,7 @@ export const DC_ANALYTIC_REQUIREMENTS: Record<string, AnalyticRequirement> = {
       'Cloud volume inventory',
     ],
     dataSource: 'Volume',
-    platforms: ['IaaS', 'ESXi / Virtualization'],
+    platforms: ['IaaS', 'ESXi'],
   },
 
   'Image Creation': {
@@ -2694,18 +2696,30 @@ export const DC_ANALYTIC_REQUIREMENTS: Record<string, AnalyticRequirement> = {
 };
 
 /**
- * Helper function to get analytic requirement by DC name
+ * Fast lookup by DC ID for requirement resolution
  */
-export function getAnalyticRequirement(dcName: string): AnalyticRequirement | undefined {
-  return DC_ANALYTIC_REQUIREMENTS[dcName];
+const ANALYTIC_REQUIREMENTS_BY_ID = new Map<string, AnalyticRequirement>(
+  Object.values(DC_ANALYTIC_REQUIREMENTS).map(requirement => [
+    requirement.dcId.toLowerCase(),
+    requirement,
+  ])
+);
+
+/**
+ * Helper function to get analytic requirement by DC name or ID
+ */
+export function getAnalyticRequirement(dcNameOrId: string): AnalyticRequirement | undefined {
+  const direct = DC_ANALYTIC_REQUIREMENTS[dcNameOrId];
+  if (direct) return direct;
+  return ANALYTIC_REQUIREMENTS_BY_ID.get(dcNameOrId.toLowerCase());
 }
 
 /**
- * Helper function to get all requirements for a list of DC names
+ * Helper function to get all requirements for a list of DC names or IDs
  */
 export function getAnalyticRequirements(dcNames: string[]): AnalyticRequirement[] {
   return dcNames
-    .map(name => DC_ANALYTIC_REQUIREMENTS[name])
+    .map(name => getAnalyticRequirement(name))
     .filter((req): req is AnalyticRequirement => req !== undefined);
 }
 
@@ -2730,6 +2744,6 @@ export function getDCsByChannel(): Record<string, string[]> {
  */
 export function getDCsForPlatform(platform: string): string[] {
   return Object.entries(DC_ANALYTIC_REQUIREMENTS)
-    .filter(([_, req]) => req.platforms?.includes(platform))
+    .filter(([_, req]) => Array.isArray(req.platforms) && platformMatchesAny(req.platforms, [platform]))
     .map(([dcName]) => dcName);
 }

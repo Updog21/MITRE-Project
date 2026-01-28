@@ -8,6 +8,7 @@
  */
 
 import { WIZARD_QUESTION_SETS, WIZARD_CONTEXT_ALIASES, type WizardQuestion } from './wizard-questions';
+import { normalizePlatformList } from '@shared/platforms';
 import { DC_ANALYTIC_REQUIREMENTS, type AnalyticRequirement } from './dc-analytic-requirements';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -110,7 +111,8 @@ export function enrichQuestion(question: WizardQuestion): QuestionWithRequiremen
  * ```
  */
 export function getEnrichedQuestionsForPlatform(platform: string): QuestionWithRequirements[] {
-  const alias = WIZARD_CONTEXT_ALIASES[platform] || platform;
+  const normalized = normalizePlatformList([platform])[0] || platform;
+  const alias = WIZARD_CONTEXT_ALIASES[normalized.toLowerCase()] || normalized;
   const questionSet = WIZARD_QUESTION_SETS[alias];
 
   if (!questionSet) return [];
@@ -268,7 +270,8 @@ export function getUniqueMutableElements(dcNames: string[]): string[] {
  * @returns True if questions exist for this platform
  */
 export function hasQuestionsForPlatform(platform: string): boolean {
-  const alias = WIZARD_CONTEXT_ALIASES[platform] || platform;
+  const normalized = normalizePlatformList([platform])[0] || platform;
+  const alias = WIZARD_CONTEXT_ALIASES[normalized.toLowerCase()] || normalized;
   return WIZARD_QUESTION_SETS[alias] !== undefined;
 }
 

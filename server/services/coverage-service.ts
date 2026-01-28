@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { mitreKnowledgeGraph } from "../mitre-stix/knowledge-graph";
+import { normalizePlatformList } from "../../shared/platforms";
 
 export interface GlobalCoverageRow {
   techniqueId: string;
@@ -11,14 +12,18 @@ export interface GlobalCoverageRow {
 }
 
 function parseTactics(raw: unknown): string[] {
+  const normalizeList = (values: unknown[]): string[] =>
+    values
+      .map((t) => String(t).trim())
+      .filter((t) => t.length > 0);
   if (Array.isArray(raw)) {
-    return raw.map((t) => String(t));
+    return normalizeList(raw);
   }
   if (typeof raw === "string") {
     try {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        return parsed.map((t: unknown) => String(t));
+        return normalizeList(parsed);
       }
     } catch {
       return [];
@@ -80,9 +85,17 @@ function normalizeCoverageRows(rows: Array<Record<string, unknown>>): GlobalCove
     console.warn(`[Coverage] Skipped ${invalidCount} mappings with invalid technique IDs.`);
   }
 
-  return Array.from(coverageByTechnique.values()).sort((a, b) =>
-    a.techniqueId.localeCompare(b.techniqueId)
-  );
+  const normalized = Array.from(coverageByTechnique.values());
+  normalized.forEach((row) => {
+    if (row.tactics.length === 0) {
+      const kgTactics = mitreKnowledgeGraph.getTactics(row.techniqueId);
+      if (kgTactics.length > 0) {
+        row.tactics = kgTactics;
+      }
+    }
+  });
+
+  return normalized.sort((a, b) => a.techniqueId.localeCompare(b.techniqueId));
 }
 
 export async function getGlobalCoverage(
@@ -94,7 +107,7 @@ export async function getGlobalCoverage(
 ): Promise<GlobalCoverageRow[]> {
   await mitreKnowledgeGraph.ensureInitialized();
   const hasProduct = typeof productId === 'string' && productId.length > 0;
-  const platformList = (platforms || []).filter(Boolean).map(platform => platform.toLowerCase());
+  const platformList = normalizePlatformList(platforms || []).map((platform) => platform.toLowerCase());
   const scoreCategories = scope === 'visibility'
     ? ['Minimal', 'Partial', 'Significant']
     : ['Partial', 'Significant'];

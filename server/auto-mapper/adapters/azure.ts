@@ -296,7 +296,7 @@ export class AzureAdapter implements ResourceAdapter {
     return {
       productId,
       source: 'azure',
-      confidence: Math.min(100, analytics.length * 6),
+      confidence: 0,
       detectionStrategies: Array.from(techniqueIds).map(t => `DS-${t}`),
       analytics,
       dataComponents,

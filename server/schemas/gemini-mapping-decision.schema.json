@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "pattern": "^DC\\d{4}$" },
+    "selected": { "type": "boolean" },
+    "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+    "scope": { "type": "string", "enum": ["exact", "suite-explicit", "platform-explicit"] },
+    "reason": { "type": "string", "minLength": 1 },
+    "evidence": { "type": "string", "minLength": 1 },
+    "source_url": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https?://"
+    }
+  },
+  "required": ["id", "selected"],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": { "selected": { "const": true } },
+        "required": ["selected"]
+      },
+      "then": {
+        "required": ["confidence", "scope", "reason", "evidence", "source_url"],
+        "properties": {
+          "confidence": {},
+          "scope": {},
+          "reason": {},
+          "evidence": {},
+          "source_url": {}
+        }
+      },
+      "else": {
+        "properties": {
+          "confidence": false,
+          "scope": false,
+          "reason": false,
+          "evidence": false,
+          "source_url": false
+        }
+      }
+    }
+  ]
+}

@@ -2,6 +2,7 @@ import { db } from '../db';
 import { mitreAssets, detectionStrategies, analytics, dataComponents as dataComponentsTable, nodes, edges } from '@shared/schema';
 import { eq, and, sql } from 'drizzle-orm';
 import { fetchWithTimeout } from '../utils/fetch';
+import { normalizePlatformList, platformMatchesAny } from '../../shared/platforms';
 
 interface CarAnalytic {
   name: string;
@@ -35,6 +36,9 @@ interface StixObject {
   x_mitre_data_component_refs?: string[];
   x_mitre_detection_strategy_refs?: string[];
   x_mitre_data_source_ref?: string;
+  x_mitre_domains?: string[];
+  revoked?: boolean;
+  x_mitre_deprecated?: boolean;
   x_mitre_analytic_refs?: string[];
   x_mitre_log_source_references?: Array<{
     x_mitre_data_component_ref: string;
@@ -111,7 +115,17 @@ interface DataComponentInfo {
   description: string;
   dataSourceId: string;
   dataSourceName: string;
-  derivedPlatforms?: string[];
+  platforms?: string[];
+  domains: string[];
+  revoked: boolean;
+  deprecated: boolean;
+}
+
+interface DetectsProvenance {
+  provenance: 'stix_relationship' | 'derived_from_technique_metadata';
+  stixRelationshipId?: string;
+  derivedFrom?: string;
+  derivedMethod?: string;
 }
 
 interface LogRequirement {
@@ -132,9 +146,12 @@ export class MitreKnowledgeGraph {
   private strategyMap: Map<string, StrategyInfo> = new Map();
   private analyticMap: Map<string, AnalyticInfo> = new Map();
   private dataComponentMap: Map<string, DataComponentInfo> = new Map();
-  private dataSourceMap: Map<string, { id: string; name: string }> = new Map();
+  private dataSourceMap: Map<string, { id: string; name: string; platforms: string[] }> = new Map();
   private techniqueByStixId: Map<string, TechniqueInfo> = new Map();
   private dataComponentDetects: Map<string, Set<string>> = new Map();
+  private dataComponentDetectsProvenance: Map<string, Map<string, DetectsProvenance>> = new Map();
+  private strategyDetectsProvenance: Map<string, Map<string, DetectsProvenance>> = new Map();
+  private hasStixDetectsRelationships = false;
   private tacticMap: Map<string, { id: string; name: string }> = new Map();
   private subtechniqueParents: Map<string, string> = new Map();
   private techniquePhaseMap: Map<string, string[]> = new Map();
@@ -284,7 +301,10 @@ export class MitreKnowledgeGraph {
           description: dc.description,
           dataSourceId: dc.dataSourceId,
           dataSourceName: dc.dataSourceName,
-          derivedPlatforms: dc.derivedPlatforms || [],
+          platforms: dc.platforms || [],
+          domains: dc.domains,
+          revoked: dc.revoked,
+          deprecated: dc.deprecated,
         },
       });
     });
@@ -308,6 +328,7 @@ export class MitreKnowledgeGraph {
       type: string;
       dataset: string;
       datasetVersion: string;
+      attributes?: Record<string, unknown> | null;
     }> = [];
     const edgeKeys = new Set<string>();
 
@@ -318,12 +339,16 @@ export class MitreKnowledgeGraph {
         const key = `${dataset}|detects|${strategy.stixId}|${tech.stixId}`;
         if (!edgeKeys.has(key)) {
           edgeKeys.add(key);
+          const provenance = this.strategyDetectsProvenance
+            .get(strategy.stixId)
+            ?.get(tech.stixId);
           edgeRows.push({
             sourceId: strategy.stixId,
             targetId: tech.stixId,
             type: 'detects',
             dataset,
             datasetVersion,
+            attributes: provenance ? { ...provenance } : null,
           });
         }
       });
@@ -341,6 +366,7 @@ export class MitreKnowledgeGraph {
             type: 'uses',
             dataset,
             datasetVersion,
+            attributes: { provenance: 'stix_ref_field' },
           });
         }
       });
@@ -358,6 +384,7 @@ export class MitreKnowledgeGraph {
             type: 'looks_for',
             dataset,
             datasetVersion,
+            attributes: { provenance: 'stix_ref_field' },
           });
         }
       });
@@ -368,12 +395,16 @@ export class MitreKnowledgeGraph {
         const key = `${dataset}|detects|${dcStixId}|${techStixId}`;
         if (!edgeKeys.has(key)) {
           edgeKeys.add(key);
+          const provenance = this.dataComponentDetectsProvenance
+            .get(dcStixId)
+            ?.get(techStixId);
           edgeRows.push({
             sourceId: dcStixId,
             targetId: techStixId,
             type: 'detects',
             dataset,
             datasetVersion,
+            attributes: provenance ? { ...provenance } : null,
           });
         }
       });
@@ -435,7 +466,7 @@ export class MitreKnowledgeGraph {
               stixId: stixObj.id,
               name: stixObj.name || '',
               description: stixObj.description || '',
-              platforms: stixObj.x_mitre_platforms || [],
+              platforms: this.readPlatforms(stixObj),
               tactics: [],
               dataSources: stixObj.x_mitre_data_sources || [],
               detection: stixObj.x_mitre_detection || '',
@@ -506,7 +537,7 @@ export class MitreKnowledgeGraph {
               description: stixObj.description || '',
               strategyRefs: [],
               dataComponentRefs: Array.from(new Set(dataComponentRefs)),
-              platforms: stixObj.x_mitre_platforms || [],
+              platforms: this.readPlatforms(stixObj),
               logSourceReferences,
               mutableElements,
             });
@@ -522,6 +553,10 @@ export class MitreKnowledgeGraph {
             description: stixObj.description || '',
             dataSourceId: stixObj.x_mitre_data_source_ref || '',
             dataSourceName: '',
+            platforms: this.readPlatforms(stixObj),
+            domains: Array.isArray(stixObj.x_mitre_domains) ? stixObj.x_mitre_domains : [],
+            revoked: Boolean(stixObj.revoked),
+            deprecated: Boolean(stixObj.x_mitre_deprecated),
           });
           break;
           
@@ -530,6 +565,7 @@ export class MitreKnowledgeGraph {
           this.dataSourceMap.set(stixObj.id, {
             id: externalId || stixObj.id,
             name: stixObj.name || '',
+            platforms: this.readPlatforms(stixObj),
           });
           break;
 
@@ -549,6 +585,9 @@ export class MitreKnowledgeGraph {
       const ds = this.dataSourceMap.get(dc.dataSourceId);
       if (ds) {
         dc.dataSourceName = ds.name;
+        if (!dc.platforms || dc.platforms.length === 0) {
+          dc.platforms = ds.platforms.slice();
+        }
         linkedCount++;
       }
     });
@@ -585,6 +624,7 @@ export class MitreKnowledgeGraph {
       }
     });
 
+    let stixDetectsEdges = 0;
     for (const obj of objects) {
       if (obj.type !== 'relationship') continue;
       
@@ -594,17 +634,57 @@ export class MitreKnowledgeGraph {
         this.subtechniqueParents.set(rel.source_ref, rel.target_ref);
       }
 
-      if (rel.relationship_type === 'detects' && rel.source_ref.includes('x-mitre-detection-strategy')) {
-        const techInfo = this.findTechniqueByStixId(rel.target_ref);
-        if (techInfo) {
-          if (!this.techniqueToStrategies.has(techInfo.id)) {
-            this.techniqueToStrategies.set(techInfo.id, []);
+      if (rel.relationship_type === 'detects') {
+        const sourceIsStrategy = rel.source_ref.includes('x-mitre-detection-strategy');
+        const targetIsStrategy = rel.target_ref.includes('x-mitre-detection-strategy');
+        if (sourceIsStrategy || targetIsStrategy) {
+          const strategyRef = sourceIsStrategy ? rel.source_ref : rel.target_ref;
+          const techniqueRef = sourceIsStrategy ? rel.target_ref : rel.source_ref;
+          const techInfo = this.findTechniqueByStixId(techniqueRef);
+          if (techInfo) {
+            if (!this.techniqueToStrategies.has(techInfo.id)) {
+              this.techniqueToStrategies.set(techInfo.id, []);
+            }
+            const strategyList = this.techniqueToStrategies.get(techInfo.id)!;
+            if (!strategyList.includes(strategyRef)) {
+              strategyList.push(strategyRef);
+            }
+
+            const strategy = this.strategyMap.get(strategyRef);
+            if (strategy && !strategy.techniques.includes(techInfo.id)) {
+              strategy.techniques.push(techInfo.id);
+            }
+            this.setStrategyDetectsProvenance(strategyRef, techInfo.stixId, {
+              provenance: 'stix_relationship',
+              stixRelationshipId: rel.id,
+            });
           }
-          this.techniqueToStrategies.get(techInfo.id)!.push(rel.source_ref);
-          
-          const strategy = this.strategyMap.get(rel.source_ref);
-          if (strategy) {
-            strategy.techniques.push(techInfo.id);
+        }
+      }
+
+      if (rel.relationship_type === 'detects') {
+        const sourceIsDataComponent = this.dataComponentMap.has(rel.source_ref);
+        const targetIsDataComponent = this.dataComponentMap.has(rel.target_ref);
+        const sourceIsTechnique = this.techniqueByStixId.has(rel.source_ref);
+        const targetIsTechnique = this.techniqueByStixId.has(rel.target_ref);
+
+        if (sourceIsDataComponent && targetIsTechnique) {
+          const wasAdded = this.addDetectsEdge(rel.source_ref, rel.target_ref, {
+            provenance: 'stix_relationship',
+            stixRelationshipId: rel.id,
+          });
+          if (wasAdded) {
+            this.hasStixDetectsRelationships = true;
+            stixDetectsEdges += 1;
+          }
+        } else if (targetIsDataComponent && sourceIsTechnique) {
+          const wasAdded = this.addDetectsEdge(rel.target_ref, rel.source_ref, {
+            provenance: 'stix_relationship',
+            stixRelationshipId: rel.id,
+          });
+          if (wasAdded) {
+            this.hasStixDetectsRelationships = true;
+            stixDetectsEdges += 1;
           }
         }
       }
@@ -612,7 +692,9 @@ export class MitreKnowledgeGraph {
 
     this.hydrateTechniqueTactics();
     this.repairDetectsEdges();
-    this.propagatePlatforms();
+    if (stixDetectsEdges > 0) {
+      console.log(`[Graph Ingest] Ingested ${stixDetectsEdges} STIX data component detects edges`);
+    }
   }
 
   private formatTacticName(value: string): string {
@@ -772,8 +854,56 @@ export class MitreKnowledgeGraph {
     return this.normalizeName(raw);
   }
 
+  private addDetectsEdge(dcStixId: string, techStixId: string, provenance: DetectsProvenance): boolean {
+    if (!this.dataComponentDetects.has(dcStixId)) {
+      this.dataComponentDetects.set(dcStixId, new Set());
+    }
+    const targetSet = this.dataComponentDetects.get(dcStixId)!;
+    const isNew = !targetSet.has(techStixId);
+    if (isNew) {
+      targetSet.add(techStixId);
+    }
+
+    if (!this.dataComponentDetectsProvenance.has(dcStixId)) {
+      this.dataComponentDetectsProvenance.set(dcStixId, new Map());
+    }
+    const provenanceMap = this.dataComponentDetectsProvenance.get(dcStixId)!;
+    const existing = provenanceMap.get(techStixId);
+
+    if (existing?.provenance === 'stix_relationship') {
+      return isNew;
+    }
+
+    if (provenance.provenance === 'stix_relationship' || !existing) {
+      provenanceMap.set(techStixId, provenance);
+    }
+    return isNew;
+  }
+
+  private setStrategyDetectsProvenance(strategyStixId: string, techStixId: string, provenance: DetectsProvenance): void {
+    if (!this.strategyDetectsProvenance.has(strategyStixId)) {
+      this.strategyDetectsProvenance.set(strategyStixId, new Map());
+    }
+    const provenanceMap = this.strategyDetectsProvenance.get(strategyStixId)!;
+    const existing = provenanceMap.get(techStixId);
+
+    if (existing?.provenance === 'stix_relationship') {
+      return;
+    }
+
+    if (provenance.provenance === 'stix_relationship' || !existing) {
+      provenanceMap.set(techStixId, provenance);
+    }
+  }
+
   private repairDetectsEdges(): void {
+    if (this.hasStixDetectsRelationships) {
+      console.log('[Graph Repair] Skipping derived detects edges because STIX detects relationships were ingested');
+      return;
+    }
+
     this.dataComponentDetects.clear();
+    this.dataComponentDetectsProvenance.clear();
     const dataComponentIndex = new Map<string, string>();
 
     this.dataComponentMap.forEach((dc, stixId) => {
@@ -796,12 +926,12 @@ export class MitreKnowledgeGraph {
           continue;
         }
 
-        if (!this.dataComponentDetects.has(dcStixId)) {
-          this.dataComponentDetects.set(dcStixId, new Set());
-        }
-        const targetSet = this.dataComponentDetects.get(dcStixId)!;
-        if (!targetSet.has(tech.stixId)) {
-          targetSet.add(tech.stixId);
+        const wasAdded = this.addDetectsEdge(dcStixId, tech.stixId, {
+          provenance: 'derived_from_technique_metadata',
+          derivedFrom: tech.stixId,
+          derivedMethod: 'repairDetectsEdges_v1',
+        });
+        if (wasAdded) {
           created += 1;
         }
       }
@@ -813,21 +943,6 @@ export class MitreKnowledgeGraph {
     console.log(`[Graph Repair] Added ${created} data component detects edges`);
   }
 
-  private propagatePlatforms(): void {
-    this.dataComponentMap.forEach((dc, dcStixId) => {
-      const platforms = new Set<string>();
-      const techniques = this.dataComponentDetects.get(dcStixId) || new Set<string>();
-
-      techniques.forEach((techStixId) => {
-        const tech = this.techniqueByStixId.get(techStixId);
-        if (!tech) return;
-        tech.platforms.forEach((platform) => platforms.add(platform));
-      });
-
-      dc.derivedPlatforms = Array.from(platforms);
-    });
-  }
-
   private getExternalId(obj: StixObject): string | null {
     if (!obj.external_references) return null;
     
@@ -837,6 +952,15 @@ export class MitreKnowledgeGraph {
       }
     }
     return null;
+  }
+
+  private readPlatforms(obj: StixObject): string[] {
+    const raw = Array.isArray((obj as any).x_mitre_platforms)
+      ? (obj as any).x_mitre_platforms
+      : Array.isArray((obj as any)["x-mitre-platforms"])
+        ? (obj as any)["x-mitre-platforms"]
+        : [];
+    return normalizePlatformList(raw);
   }
 
   private findTechniqueByStixId(stixId: string): TechniqueInfo | null {
@@ -1223,7 +1347,7 @@ export class MitreKnowledgeGraph {
           }
 
           if (platforms && platforms.length > 0 && analytic.platforms.length > 0) {
-            const platformMatch = this.platformMatchesAny(analytic.platforms, platforms);
+            const platformMatch = platformMatchesAny(analytic.platforms, platforms);
             if (!platformMatch) {
               continue;
             }
@@ -1290,16 +1414,6 @@ export class MitreKnowledgeGraph {
     return { detectionStrategies: strategies, dataComponents, carAnalytics, techniqueNames };
   }
 
-  private platformMatchesAny(analyticPlatforms: string[], selectedPlatforms: string[]): boolean {
-    const normalizedSelected = selectedPlatforms.map(p => p.toLowerCase());
-    return analyticPlatforms.some((platform) => {
-      const platformLower = platform.toLowerCase();
-      return normalizedSelected.some((selected) =>
-        platformLower.includes(selected) || selected.includes(platformLower)
-      );
-    });
-  }
-
   getStats(): { techniques: number; strategies: number; analytics: number; dataComponents: number; dataSources: number } {
     return {
       techniques: this.techniqueMap.size,
@@ -1323,18 +1437,57 @@ export class MitreKnowledgeGraph {
 
   getTechniquesByPlatform(platformName: string): TechniqueInfo[] {
     const techniques: TechniqueInfo[] = [];
-    const platformLower = platformName.toLowerCase();
-    
     this.techniqueMap.forEach((tech) => {
-      for (const platform of tech.platforms) {
-        if (platform.toLowerCase().includes(platformLower) || platformLower.includes(platform.toLowerCase())) {
-          techniques.push(tech);
-          break;
-        }
+      if (platformMatchesAny(tech.platforms, [platformName])) {
+        techniques.push(tech);
       }
     });
     
     return techniques;
+  }
+
+  getDataComponentsForPlatformsViaTechniques(platforms: string[]): DataComponentInfo[] {
+    const normalizedPlatforms = normalizePlatformList(platforms);
+    if (normalizedPlatforms.length === 0) {
+      return [];
+    }
+
+    const techniqueIds = new Set<string>();
+    normalizedPlatforms.forEach((platform) => {
+      this.getTechniquesByPlatform(platform).forEach((tech) => techniqueIds.add(tech.id));
+    });
+
+    if (techniqueIds.size === 0) {
+      return [];
+    }
+
+    const seenDataComponents = new Set<string>();
+    const dataComponents: DataComponentInfo[] = [];
+
+    techniqueIds.forEach((techniqueId) => {
+      const strategyStixIds = this.getStrategiesForTechniqueWithFallback(techniqueId);
+      for (const stratStixId of strategyStixIds) {
+        const analyticStixIds = this.strategyToAnalytics.get(stratStixId) || [];
+        for (const analyticStixId of analyticStixIds) {
+          const analytic = this.analyticMap.get(analyticStixId);
+          if (!analytic) continue;
+
+          if (analytic.platforms.length > 0 && !platformMatchesAny(analytic.platforms, normalizedPlatforms)) {
+            continue;
+          }
+
+          for (const dcRef of analytic.dataComponentRefs) {
+            const dc = this.dataComponentMap.get(dcRef);
+            if (!dc) continue;
+            if (seenDataComponents.has(dc.id)) continue;
+            seenDataComponents.add(dc.id);
+            dataComponents.push(dc);
+          }
+        }
+      }
+    });
+
+    return dataComponents;
   }
 
   getTechniquesByHybridSelector(selectorType: 'platform', selectorValue: string): string[] {
@@ -1471,11 +1624,21 @@ export class MitreKnowledgeGraph {
   getTechniquesByDataComponentName(dataComponentName: string): TechniqueInfo[] {
     const results: TechniqueInfo[] = [];
     const seenTechniques = new Set<string>();
-    const dcNameLower = this.normalizeName(dataComponentName);
     let targetDcStixId: string | null = null;
 
+    const trimmed = typeof dataComponentName === 'string' ? dataComponentName.trim() : '';
+    if (trimmed) {
+      const idMatch = this.dataComponentIdIndex.get(trimmed.toUpperCase());
+      if (idMatch) {
+        targetDcStixId = idMatch;
+      } else if (this.dataComponentMap.has(trimmed)) {
+        targetDcStixId = trimmed;
+      }
+    }
+
+    const dcNameLower = this.normalizeName(dataComponentName);
     this.dataComponentMap.forEach((dc, stixId) => {
-      if (dc.name.toLowerCase() === dcNameLower) {
+      if (!targetDcStixId && dc.name.toLowerCase() === dcNameLower) {
         targetDcStixId = stixId;
       }
     });

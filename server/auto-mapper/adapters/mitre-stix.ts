@@ -152,7 +152,7 @@ export class MitreStixAdapter implements ResourceAdapter {
     return {
       productId,
       source: 'mitre_stix',
-      confidence: Math.min(100, objects.length * 15),
+      confidence: 0,
       detectionStrategies: [],
       analytics,
       dataComponents: Array.from(new Map(dataComponents.map(dc => [dc.id, dc])).values()),

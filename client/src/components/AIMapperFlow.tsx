@@ -6,16 +6,13 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import { CheckCircle2, ChevronRight, Loader2, Plus, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
-import { WIZARD_QUESTION_SETS, WIZARD_CONTEXT_ALIASES } from '@/lib/wizard-questions';
-import { AnalyticRequirementsPanel, InlineRequirementHint } from '@/components/AnalyticRequirementsPanel';
-import { DC_ANALYTIC_REQUIREMENTS } from '@/lib/dc-analytic-requirements';
+import { AnalyticRequirementsPanel, InlineRequirementHint, type EnrichedEvidence } from '@/components/AnalyticRequirementsPanel';
+import { normalizePlatformList, platformMatchesAny } from '@shared/platforms';
 
 interface AIMapperFlowProps {
   initialQuery?: string;
@@ -25,7 +22,7 @@ interface AIMapperFlowProps {
   onCancel: () => void;
 }
 
-type Step = 'details' | 'platforms' | 'streams' | 'review' | 'analyzing' | 'evidence' | 'guided-results' | 'complete';
+type Step = 'details' | 'platforms' | 'platform-review' | 'review' | 'auto-results' | 'streams' | 'analyzing' | 'evidence' | 'guided-summary' | 'guided-results' | 'complete';
 
 interface MitrePlatformsResponse {
   platforms: string[];
@@ -35,13 +32,103 @@ interface MitreDataComponent {
   id: string;
   name: string;
   description?: string;
+  shortDescription?: string;
+  examples?: string[];
+  dataSourceId?: string;
   dataSourceName?: string;
   platforms?: string[];
+  domains?: string[];
+  revoked?: boolean;
+  deprecated?: boolean;
   relevanceScore?: number;
+}
+
+interface MitreDataComponentsMeta {
+  total: number;
+  withPlatforms: number;
+  matched: number;
+  fallbackReason?: 'none' | 'no_platform_metadata' | 'no_platform_matches' | 'graph_unavailable';
+  unscopedIncluded?: boolean;
 }
 
 interface MitreDataComponentsResponse {
   dataComponents: MitreDataComponent[];
+  meta?: MitreDataComponentsMeta;
+}
+
+interface ResearchLogSource {
+  name: string;
+  channel?: string[] | string;
+  requiredFields?: string[];
+  missingFields?: string[];
+  evidence?: string;
+  sourceUrl?: string;
+  notes?: string;
+  verifiedByAi?: boolean;
+}
+
+interface ResearchResultEntry {
+  dcId: string;
+  dcName: string;
+  logSources: ResearchLogSource[];
+  targetFields?: string[];
+}
+
+interface ResearchEnrichmentResponse {
+  model: string;
+  results: ResearchResultEntry[];
+  platformSuggestions?: ResearchPlatformSuggestion[];
+  sources?: Array<{ title?: string; url: string }>;
+  note?: string;
+}
+
+interface PlatformValidationResult {
+  platform: string;
+  isSupported: boolean;
+  reasoning?: string;
+  evidence?: string;
+  sourceUrl?: string;
+}
+
+interface PlatformAlternativeResult {
+  platform: string;
+  reason?: string;
+  evidence?: string;
+  sourceUrl?: string;
+}
+
+interface PlatformCheckResponse {
+  model: string;
+  validation?: PlatformValidationResult[];
+  alternativePlatformsFound?: PlatformAlternativeResult[];
+  sources?: Array<{ title?: string; url: string }>;
+  note?: string;
+}
+
+interface ResearchPlatformSuggestion {
+  platform: string;
+  reason?: string;
+  evidence?: string;
+  sourceUrl?: string;
+}
+
+interface GeminiMappingDecision {
+  id: string;
+  selected: boolean;
+  reason?: string;
+  evidence?: string;
+  sourceUrl?: string;
+  confidence?: "high" | "medium" | "low";
+  scope?: "exact" | "suite-explicit" | "platform-explicit";
+}
+
+interface GeminiMappingResponse {
+  suggestedIds?: string[];
+  decisions?: GeminiMappingDecision[];
+  evaluatedCount?: number;
+  candidateCount?: number;
+  sources?: Array<{ title?: string; url: string }>;
+  notes?: string;
 }
 
 interface CreatedProduct {
@@ -70,8 +157,11 @@ interface GuidedSummary {
 const baseSteps: { id: Step; label: string }[] = [
   { id: 'details', label: 'Details' },
   { id: 'platforms', label: 'Platforms' },
+  { id: 'platform-review', label: 'Platform Review' },
   { id: 'review', label: 'Review' },
+  { id: 'auto-results', label: 'Auto Results' },
   { id: 'streams', label: 'Telemetry' },
+  { id: 'guided-summary', label: 'Requirements' },
   { id: 'guided-results', label: 'Results' },
   { id: 'complete', label: 'Complete' },
 ];
@@ -84,9 +174,12 @@ const evidenceSteps: { id: Step; label: string }[] = [
 const STEP_DESCRIPTIONS: Record<Step, string> = {
   details: 'Define the vendor, product name, aliases, and a short description.',
   platforms: 'Pick the MITRE platforms that apply to this product.',
-  streams: 'Answer guided questions to map telemetry to MITRE data components.',
+  'platform-review': 'Review Gemini platform suggestions based on a quick documentation check.',
+  'auto-results': 'Review the auto-mapper results before continuing to telemetry.',
+  streams: 'Select the MITRE data components your telemetry provides (input step).',
   review: 'Confirm inputs and launch the auto mapping process.',
   evidence: 'Review evidence details when needed.',
+  'guided-summary': 'Review derived analytic requirements based on your selections (output step).',
   'guided-results': 'Review the telemetry coverage inferred from your guided answers.',
   complete: 'Mapping is saved and ready to review on the product page.',
   analyzing: 'Auto mapping runs in the background and prepares evidence prompts.',
@@ -130,15 +223,23 @@ const PLATFORM_DESCRIPTIONS: Record<string, string> = {
   'Windows': 'Windows desktops, servers, and endpoints.',
   'Linux': 'Linux servers and workloads.',
   'macOS': 'Apple macOS endpoints and laptops.',
-  'Identity Provider': 'Identity and access platforms (IdP).',
-  'Azure AD': 'Microsoft identity and directory services.',
+  'Android': 'Android mobile devices and tablets.',
+  'iOS': 'Apple iOS and iPadOS devices.',
+  'None': 'Platform-agnostic or general techniques.',
+  'PRE': 'Pre-ATT&CK and reconnaissance activities.',
   'IaaS': 'Cloud infrastructure workloads (AWS/Azure/GCP).',
   'SaaS': 'Cloud-hosted SaaS applications.',
   'Office 365': 'Microsoft 365 productivity suite.',
-  'Network': 'Network appliances, firewalls, and routers.',
-  'Network Devices': 'Routers, switches, and network sensors.',
+  'Office Suite': 'Productivity and collaboration suites.',
+  'Identity Provider': 'Identity and access platforms (Azure AD, Okta, etc.).',
+  'Google Workspace': 'Google Workspace productivity suite.',
+  'Azure AD': 'Microsoft Entra ID and directory services.',
+  'AWS': 'Amazon Web Services cloud infrastructure.',
+  'Azure': 'Microsoft Azure cloud infrastructure.',
+  'GCP': 'Google Cloud Platform infrastructure.',
   'Containers': 'Container runtime or Kubernetes.',
   'ESXi': 'VMware ESXi / vSphere environments.',
+  'Network Devices': 'Network appliances, routers, switches, and sensors.',
 };
 
 function slugify(value: string) {
@@ -172,10 +273,16 @@ async function fetchProduct(productId: string) {
   return response.json();
 }
 
-async function fetchDataComponents(platform?: string): Promise<MitreDataComponentsResponse> {
+async function fetchDataComponents(
+  platforms?: string[],
+  includeUnscoped?: boolean
+): Promise<MitreDataComponentsResponse> {
   const params = new URLSearchParams();
-  if (platform) {
-    params.set('platform', platform);
+  if (platforms && platforms.length > 0) {
+    params.set('platforms', platforms.join(','));
+  }
+  if (includeUnscoped) {
+    params.set('include_unscoped', 'true');
   }
   const response = await fetch(`/api/mitre/data-components${params.toString() ? `?${params.toString()}` : ''}`);
   if (!response.ok) {
@@ -277,6 +384,217 @@ async function runAutoMapper(productId: string) {
   return response.json();
 }
 
+type EnrichmentLogSource = {
+  name: string;
+  channel?: string[];
+  required_fields?: string[];
+  missing_fields?: string[];
+  evidence?: string;
+  notes?: string;
+  source_url?: string;
+  verified_by_ai?: boolean;
+};
+
+type EnrichmentResult = {
+  data_component_id: string;
+  data_component_name?: string;
+  target_fields?: string[];
+  log_sources: EnrichmentLogSource[];
+};
+
+const normalizeString = (value: unknown): string => {
+  if (typeof value !== 'string') return '';
+  return value.trim();
+};
+
+const normalizeChannelArray = (value: unknown): string[] => {
+  const normalizeEntry = (entry: unknown): string => {
+    if (typeof entry === 'string') return entry.trim();
+    if (typeof entry === 'number' && Number.isFinite(entry)) return String(entry);
+    return '';
+  };
+  if (Array.isArray(value)) {
+    const cleaned = value
+      .map((item) => normalizeEntry(item))
+      .filter((item) => item.length > 0);
+    return Array.from(new Set(cleaned));
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    const cleaned = trimmed
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    return Array.from(new Set(cleaned));
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return [String(value)];
+  }
+  return [];
+};
+
+const normalizeEnrichmentResults = (raw: unknown): EnrichmentResult[] => {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry: any): EnrichmentResult | null => {
+      const dcId = normalizeString(entry?.data_component_id)
+        || normalizeString(entry?.dataComponentId)
+        || normalizeString(entry?.dcId)
+        || normalizeString(entry?.dc_id);
+      if (!dcId) return null;
+      const dcName = normalizeString(entry?.data_component_name)
+        || normalizeString(entry?.dataComponentName)
+        || normalizeString(entry?.dcName)
+        || normalizeString(entry?.dc_name);
+      const targetFieldsRaw = Array.isArray(entry?.target_fields)
+        ? entry.target_fields
+        : Array.isArray(entry?.targetFields) ? entry.targetFields : [];
+      const targetFields = targetFieldsRaw
+        .map((field: unknown) => normalizeString(field))
+        .filter((field: string) => field.length > 0);
+      const logSourcesRaw = Array.isArray(entry?.log_sources)
+        ? entry.log_sources
+        : Array.isArray(entry?.logSources) ? entry.logSources : [];
+      const logSources = logSourcesRaw
+        .map((source: any): EnrichmentLogSource | null => {
+          const name = normalizeString(source?.name);
+          if (!name) return null;
+          const channel = normalizeChannelArray(source?.channel);
+          const requiredFieldsRaw = Array.isArray(source?.required_fields)
+            ? source.required_fields
+            : Array.isArray(source?.requiredFields) ? source.requiredFields : [];
+          const missingFieldsRaw = Array.isArray(source?.missing_fields)
+            ? source.missing_fields
+            : Array.isArray(source?.missingFields) ? source.missingFields : [];
+          return {
+            name,
+            channel: channel.length > 0 ? channel : undefined,
+            required_fields: requiredFieldsRaw
+              .map((field: unknown) => normalizeString(field))
+              .filter((field: string) => field.length > 0),
+            missing_fields: missingFieldsRaw
+              .map((field: unknown) => normalizeString(field))
+              .filter((field: string) => field.length > 0),
+            evidence: normalizeString(source?.evidence) || undefined,
+            notes: normalizeString(source?.notes) || normalizeString(source?.note) || undefined,
+            source_url: normalizeString(source?.source_url) || normalizeString(source?.sourceUrl) || undefined,
+            verified_by_ai: source?.verified_by_ai === true || source?.verifiedByAi === true
+              ? true
+              : source?.verified_by_ai === false || source?.verifiedByAi === false
+                ? false
+                : undefined,
+          };
+        })
+        .filter(Boolean) as EnrichmentLogSource[];
+      return {
+        data_component_id: dcId,
+        data_component_name: dcName || undefined,
+        target_fields: targetFields,
+        log_sources: logSources,
+      };
+    })
+    .filter(Boolean) as EnrichmentResult[];
+};
+
+const mergeEnrichmentResults = (
+  existingRaw: unknown,
+  incomingRaw: unknown
+): EnrichmentResult[] => {
+  const existing = normalizeEnrichmentResults(existingRaw);
+  const incoming = normalizeEnrichmentResults(incomingRaw);
+  const merged = new Map<string, EnrichmentResult>();
+
+  const addLogSources = (target: EnrichmentResult, sources: EnrichmentLogSource[]) => {
+    const byKey = new Map<string, EnrichmentLogSource>();
+    target.log_sources.forEach((source) => {
+      const key = `${source.name.toLowerCase()}|${(source.source_url || '').toLowerCase()}`;
+      byKey.set(key, source);
+    });
+    sources.forEach((source) => {
+      const key = `${source.name.toLowerCase()}|${(source.source_url || '').toLowerCase()}`;
+      const existing = byKey.get(key);
+      if (existing) {
+        const existingChannels = existing.channel || [];
+        const incomingChannels = source.channel || [];
+        const mergedChannels = Array.from(new Set([...existingChannels, ...incomingChannels]));
+        existing.channel = mergedChannels.length > 0 ? mergedChannels : existing.channel;
+        if (!existing.notes && source.notes) {
+          existing.notes = source.notes;
+        }
+        return;
+      }
+      byKey.set(key, source);
+      target.log_sources.push(source);
+    });
+  };
+
+  const mergeTargetFields = (target: EnrichmentResult, fields: string[]) => {
+    if (!fields.length) return;
+    const seen = new Set((target.target_fields || []).map((field) => field.toLowerCase()));
+    const next = [...(target.target_fields || [])];
+    fields.forEach((field) => {
+      const normalized = field.toLowerCase();
+      if (seen.has(normalized)) return;
+      seen.add(normalized);
+      next.push(field);
+    });
+    target.target_fields = next;
+  };
+
+  const insertEntry = (entry: EnrichmentResult) => {
+    const key = entry.data_component_id.toLowerCase();
+    const existingEntry = merged.get(key);
+    if (!existingEntry) {
+      merged.set(key, {
+        data_component_id: entry.data_component_id,
+        data_component_name: entry.data_component_name,
+        target_fields: entry.target_fields ? [...entry.target_fields] : [],
+        log_sources: entry.log_sources ? [...entry.log_sources] : [],
+      });
+      return;
+    }
+    if (!existingEntry.data_component_name && entry.data_component_name) {
+      existingEntry.data_component_name = entry.data_component_name;
+    }
+    mergeTargetFields(existingEntry, entry.target_fields || []);
+    addLogSources(existingEntry, entry.log_sources || []);
+  };
+
+  existing.forEach(insertEntry);
+  incoming.forEach(insertEntry);
+
+  return Array.from(merged.values());
+};
+
+const mergePlatformSuggestions = (existingRaw: unknown, incomingRaw: unknown) => {
+  const normalizeSuggestions = (raw: unknown) => {
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((entry: any) => ({
+        platform: normalizeString(entry?.platform),
+        reason: normalizeString(entry?.reason) || undefined,
+        evidence: normalizeString(entry?.evidence) || undefined,
+        source_url: normalizeString(entry?.source_url) || normalizeString(entry?.sourceUrl) || undefined,
+      }))
+      .filter((entry) => entry.platform.length > 0);
+  };
+
+  const existing = normalizeSuggestions(existingRaw);
+  const incoming = normalizeSuggestions(incomingRaw);
+  const merged = new Map<string, { platform: string; reason?: string; evidence?: string; source_url?: string }>();
+
+  const insert = (entry: { platform: string; reason?: string; evidence?: string; source_url?: string }) => {
+    const key = `${entry.platform.toLowerCase()}|${(entry.source_url || '').toLowerCase()}`;
+    if (merged.has(key)) return;
+    merged.set(key, entry);
+  };
+
+  existing.forEach(insert);
+  incoming.forEach(insert);
+  return Array.from(merged.values());
+};
+
 async function fetchProductSsm(productId: string): Promise<SsmCapability[]> {
   const response = await fetch(`/api/products/${productId}/ssm`);
   if (!response.ok) {
@@ -354,27 +672,47 @@ function getSuggestedPlatforms(
     'mac': ['macOS'],
     'macos': ['macOS'],
     'osx': ['macOS'],
+    'android': ['Android'],
+    'ios': ['iOS'],
+    'iphone': ['iOS'],
+    'ipad': ['iOS'],
+    'mobile': ['Android', 'iOS'],
     'azure ad': ['Azure AD', 'Identity Provider'],
     'entra': ['Azure AD', 'Identity Provider'],
+    'active directory': ['Identity Provider'],
     'okta': ['Identity Provider'],
-    'aws': ['AWS', 'Amazon Web Services', 'IaaS'],
+    'idp': ['Identity Provider'],
+    'identity': ['Identity Provider'],
+    'aws': ['AWS', 'IaaS'],
+    'amazon web services': ['AWS', 'IaaS'],
     'azure': ['Azure', 'IaaS'],
-    'gcp': ['GCP', 'Google Cloud', 'IaaS'],
-    'office 365': ['Office 365'],
+    'gcp': ['GCP', 'IaaS'],
+    'google cloud': ['GCP', 'IaaS'],
+    'office 365': ['Office 365', 'Office Suite'],
     'm365': ['Office 365'],
-    'google workspace': ['Google Workspace', 'SaaS'],
+    'office suite': ['Office Suite'],
+    'google workspace': ['Google Workspace', 'Office Suite'],
+    'gsuite': ['Google Workspace', 'Office Suite'],
     'saas': ['SaaS'],
+    'iaas': ['IaaS'],
     'cloud': ['IaaS'],
-    'container': ['Containers', 'Kubernetes'],
-    'kubernetes': ['Containers', 'Kubernetes'],
-    'network': ['Network'],
-    'firewall': ['Network'],
-    'proxy': ['Network'],
+    'container': ['Containers'],
+    'containers': ['Containers'],
+    'kubernetes': ['Containers'],
+    'docker': ['Containers'],
+    'network': ['Network Devices'],
+    'firewall': ['Network Devices'],
+    'router': ['Network Devices'],
+    'switch': ['Network Devices'],
+    'proxy': ['Network Devices'],
     'vmware': ['ESXi'],
     'esxi': ['ESXi'],
+    'pre': ['PRE'],
+    'pre-attack': ['PRE'],
+    'reconnaissance': ['PRE'],
+    'none': ['None'],
     'edr': ['Windows', 'Linux', 'macOS'],
     'endpoint': ['Windows', 'Linux', 'macOS'],
-    'identity': ['Identity Provider'],
   };
 
   Object.entries(keywordMap).forEach(([keyword, candidates]) => {
@@ -408,8 +746,6 @@ export function AIMapperFlow({ initialQuery, existingProductId, mode = 'create',
     }
   ]);
   const [wantsEvidence, setWantsEvidence] = useState(false);
-  const [includeEnrichment, setIncludeEnrichment] = useState(true);
-  const [includeDatabaseQuestions, setIncludeDatabaseQuestions] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createdProductId, setCreatedProductId] = useState<string | null>(null);
   const [progressMessage, setProgressMessage] = useState('Preparing mapping...');
@@ -426,6 +762,22 @@ export function AIMapperFlow({ initialQuery, existingProductId, mode = 'create',
     sources: string[];
   } | null>(null);
   const [guidedSummary, setGuidedSummary] = useState<GuidedSummary | null>(null);
+  const [guidedContextIndex, setGuidedContextIndex] = useState(0);
+  const [geminiSuggestionCount, setGeminiSuggestionCount] = useState<number | null>(null);
+  const [geminiEvaluationCount, setGeminiEvaluationCount] = useState<number | null>(null);
+  const [geminiDecisionMap, setGeminiDecisionMap] = useState<Record<string, GeminiMappingDecision>>({});
+  const [geminiSources, setGeminiSources] = useState<Array<{ title?: string; url: string }>>([]);
+  const [geminiNotes, setGeminiNotes] = useState<string | null>(null);
+  const [geminiLoading, setGeminiLoading] = useState(false);
+  const [researchLoading, setResearchLoading] = useState(false);
+  const [researchResults, setResearchResults] = useState<ResearchEnrichmentResponse | null>(null);
+  const [researchConfirming, setResearchConfirming] = useState(false);
+  const [platformCheckLoading, setPlatformCheckLoading] = useState(false);
+  const [platformCheckResults, setPlatformCheckResults] = useState<PlatformCheckResponse | null>(null);
+  const [platformCheckHasRun, setPlatformCheckHasRun] = useState(false);
+  const [platformCheckEnabled, setPlatformCheckEnabled] = useState(false);
+  const [autoResultsNextStep, setAutoResultsNextStep] = useState<Step>('streams');
+  const [includeUnscopedDataComponents, setIncludeUnscopedDataComponents] = useState(false);
 
   const { data: platformData, isLoading: platformsLoading } = useQuery({
     queryKey: ['mitre-platforms'],
@@ -433,22 +785,32 @@ export function AIMapperFlow({ initialQuery, existingProductId, mode = 'create',
     staleTime: 10 * 60 * 1000,
   });
 
-  const platforms = (platformData?.platforms || []).filter(platform => platform !== 'PRE');
-  const selectedPlatformsList = useMemo(() => Array.from(selectedPlatforms), [selectedPlatforms]);
-  const dataComponentPlatform = selectedPlatformsList[0] || '';
+  const platforms = platformData?.platforms || [];
+  const selectedPlatformsList = useMemo(
+    () => normalizePlatformList(Array.from(selectedPlatforms)),
+    [selectedPlatforms]
+  );
+  const dataComponentPlatformsKey = useMemo(
+    () => [...selectedPlatformsList].sort().join(','),
+    [selectedPlatformsList]
+  );
 
-  const { data: dataComponentsData } = useQuery({
-    queryKey: ['mitre-data-components', dataComponentPlatform],
-    queryFn: () => fetchDataComponents(dataComponentPlatform),
+  const { data: dataComponentsData, error: dataComponentsError, isLoading: dataComponentsLoading } = useQuery({
+    queryKey: ['mitre-data-components', dataComponentPlatformsKey, includeUnscopedDataComponents ? 'unscoped' : 'strict'],
+    queryFn: () => fetchDataComponents(selectedPlatformsList, includeUnscopedDataComponents),
     enabled: selectedPlatformsList.length > 0,
     staleTime: 10 * 60 * 1000,
   });
+  const dataComponentsMeta = dataComponentsData?.meta;
+  const dataComponentsFallbackReason = dataComponentsMeta?.fallbackReason ?? 'none';
+  const canShowUnscopedToggle = dataComponentsFallbackReason === 'no_platform_metadata'
+    || dataComponentsFallbackReason === 'graph_unavailable';
 
   const suggestionInput = useMemo(
     () => [vendor, product, description, ...aliases].join(' ').trim(),
     [vendor, product, description, aliases]
   );
-  const suggestedPlatforms = useMemo(
+  const heuristicSuggestedPlatforms = useMemo(
     () => getSuggestedPlatforms(platforms, suggestionInput),
     [platforms, suggestionInput]
   );
@@ -460,39 +822,60 @@ export function AIMapperFlow({ initialQuery, existingProductId, mode = 'create',
   }, [vendor, product]);
 
   const dataComponents = dataComponentsData?.dataComponents || [];
-  const dataComponentByName = useMemo(() => {
-    return new Map(dataComponents.map(component => [component.name.toLowerCase(), component]));
+  const dataComponentById = useMemo(() => {
+    return new Map(dataComponents.map(component => [component.id.toLowerCase(), component]));
   }, [dataComponents]);
-  const wizardContextOptions = useMemo(() => {
-    const contexts = new Set<string>();
-    selectedPlatformsList.forEach(platform => {
-      const alias = WIZARD_CONTEXT_ALIASES[platform] || platform;
-      if (WIZARD_QUESTION_SETS[alias]) {
-        contexts.add(alias);
-      }
-    });
-    if (includeDatabaseQuestions && WIZARD_QUESTION_SETS['Database Platform']) {
-      contexts.add('Database Platform');
-    }
-    if (includeEnrichment && WIZARD_QUESTION_SETS['Enrichment']) {
-      contexts.add('Enrichment');
-    }
-    return Array.from(contexts);
-  }, [selectedPlatformsList, includeEnrichment, includeDatabaseQuestions]);
-
-  const resolveComponentNames = (dcNames: string[]) => {
-    const resolved = new Set<string>();
-    const missing = new Set<string>();
-    dcNames.forEach((name) => {
-      const component = dataComponentByName.get(name.toLowerCase());
-      if (component) {
-        resolved.add(component.name);
-      } else {
-        missing.add(name);
-      }
-    });
-    return { resolved: Array.from(resolved), missing: Array.from(missing) };
+  const formatDataComponentLabel = (id: string) => {
+    const component = dataComponentById.get(id.toLowerCase());
+    if (!component) return id;
+    return `${component.id} - ${component.name}`;
   };
+  const groupedDataComponents = useMemo(() => {
+    const groups = new Map<string, MitreDataComponent[]>();
+    const normalizedSelected = normalizePlatformList(selectedPlatformsList);
+
+    dataComponents.forEach(component => {
+      const componentPlatforms = (component.platforms || []).map((platform) => platform.trim()).filter(Boolean);
+      let groupName = normalizedSelected.find((platform) =>
+        platformMatchesAny(componentPlatforms, [platform])
+      );
+
+      if (!groupName) {
+        const resolvedComponent = normalizePlatformList(componentPlatforms);
+        groupName = resolvedComponent[0] || normalizedSelected[0] || 'Unspecified Platform';
+      }
+
+      const existing = groups.get(groupName) || [];
+      existing.push(component);
+      groups.set(groupName, existing);
+    });
+
+    const orderedGroups = [
+      ...normalizedSelected,
+      ...Array.from(groups.keys()).filter((key) => !normalizedSelected.includes(key)).sort(),
+    ];
+
+    return orderedGroups
+      .map((group) => ({
+        group,
+        components: (groups.get(group) || []).sort((a, b) => a.name.localeCompare(b.name)),
+      }))
+      .filter((group) => group.components.length > 0);
+  }, [dataComponents, selectedPlatformsList]);
+  const wizardContextOptions = useMemo(
+    () => groupedDataComponents.map(group => group.group),
+    [groupedDataComponents]
+  );
+
+  useEffect(() => {
+    if (wizardContextOptions.length === 0) {
+      if (guidedContextIndex !== 0) setGuidedContextIndex(0);
+      return;
+    }
+    if (guidedContextIndex >= wizardContextOptions.length) {
+      setGuidedContextIndex(0);
+    }
+  }, [wizardContextOptions, guidedContextIndex]);
 
   const evidenceTechniqueCount = useMemo(() => {
     const set = new Set<string>();
@@ -508,7 +891,14 @@ export function AIMapperFlow({ initialQuery, existingProductId, mode = 'create',
     return Boolean(mappingSummary) && evidenceTechniqueCount < EVIDENCE_AUTO_THRESHOLD;
   }, [mappingSummary, evidenceTechniqueCount, EVIDENCE_AUTO_THRESHOLD]);
 
-  const stepItems = isEvidenceOnly ? evidenceSteps : baseSteps;
+  const baseStepItems = platformCheckEnabled
+    ? baseSteps
+    : baseSteps.filter((stepItem) => stepItem.id !== 'platform-review');
+  const stepItems = isEvidenceOnly ? evidenceSteps : baseStepItems;
+
+  useEffect(() => {
+    setIncludeUnscopedDataComponents(false);
+  }, [dataComponentPlatformsKey]);
 
   useEffect(() => {
     if (!isEvidenceOnly || !existingProductId) return;
@@ -523,7 +913,7 @@ export function AIMapperFlow({ initialQuery, existingProductId, mode = 'create',
         setProduct(productData.productName || '');
         setDescription(productData.description || '');
         if (Array.isArray(productData.platforms)) {
-          setSelectedPlatforms(new Set(productData.platforms));
+          setSelectedPlatforms(new Set(normalizePlatformList(productData.platforms)));
         }
         setCreatedProductId(existingProductId);
         setStep('evidence');
@@ -590,10 +980,10 @@ export function AIMapperFlow({ initialQuery, existingProductId, mode = 'create',
     if (step !== 'platforms') return;
     if (suggestionsApplied) return;
     if (selectedPlatforms.size > 0) return;
-    if (suggestedPlatforms.length === 0) return;
-    setSelectedPlatforms(new Set(suggestedPlatforms));
+    if (heuristicSuggestedPlatforms.length === 0) return;
+    setSelectedPlatforms(new Set(heuristicSuggestedPlatforms));
     setSuggestionsApplied(true);
-  }, [step, suggestedPlatforms, selectedPlatforms.size, suggestionsApplied]);
+  }, [step, heuristicSuggestedPlatforms, selectedPlatforms.size, suggestionsApplied]);
 
   useEffect(() => {
     if (selectedPlatforms.size === 0) {
@@ -613,16 +1003,23 @@ export function AIMapperFlow({ initialQuery, existingProductId, mode = 'create',
     if (step === 'analyzing') return false;
     if (step === 'complete') return target === 'complete';
     if (target === 'platforms') return (vendor || product) && description;
+    if (target === 'platform-review') return platformCheckEnabled && selectedPlatforms.size > 0;
+    if (target === 'auto-results') return Boolean(mappingSummary);
     if (target === 'review') return selectedPlatforms.size > 0;
     if (target === 'streams') return createdProductId !== null;
+    if (target === 'guided-summary') {
+      if (!hasConfiguredStreams) return false;
+      if (wizardContextOptions.length === 0) return false;
+      return guidedContextIndex >= wizardContextOptions.length - 1;
+    }
     if (target === 'guided-results') return guidedSummary !== null;
     if (target === 'evidence') return createdProductId !== null;
     return true;
   };
 
   const renderStepper = () => (
-    <div className="max-w-4xl mx-auto mb-8">
-      <div className="flex items-center gap-8">
+    <div className="w-full mb-8">
+      <div className="flex items-center gap-6">
         {stepItems.map((item, index) => {
           const isActive = item.id === step;
           const stepIndex = stepItems.findIndex(s => s.id === step);
@@ -708,43 +1105,238 @@ export function AIMapperFlow({ initialQuery, existingProductId, mode = 'create',
             ...(stream.metadata || {}),
             guided_mode: true,
             question_ids: [],
-            missing_dc_names: [],
+            resolved_dc_ids: [],
             resolved_dc_names: [],
           },
         };
       }
       return stream;
     }));
+    if (guidedSummary) {
+      setGuidedSummary(null);
+    }
+    if (geminiSuggestionCount !== null) {
+      setGeminiSuggestionCount(null);
+    }
+    if (researchResults) {
+      setResearchResults(null);
+    }
   };
 
   const applyGuidedMapping = (index: number, answers: Record<string, boolean>) => {
-    const selectedNames = wizardContextOptions
-      .flatMap(context => WIZARD_QUESTION_SETS[context]?.categories || [])
-      .flatMap(category => category.questions)
-      .filter(question => answers[question.id])
-      .flatMap(question => question.dcNames);
-    const { resolved, missing } = resolveComponentNames(selectedNames);
+    const selectedIds = Object.keys(answers).filter(key => answers[key]);
+    const resolvedNames = selectedIds
+      .map((id) => dataComponentById.get(id.toLowerCase())?.name || id);
     const nextName = streams[index]?.name?.trim() || defaultEvidenceSourceName;
     const nextType = streams[index]?.streamType || 'log';
     updateStreamGuided(index, {
-      mappedDataComponents: resolved,
+      mappedDataComponents: selectedIds,
       questionAnswers: answers,
       name: nextName,
       streamType: nextType,
       metadata: {
         ...(streams[index]?.metadata || {}),
         guided_mode: true,
-        question_ids: Object.keys(answers).filter(key => answers[key]),
-        missing_dc_names: missing,
-        resolved_dc_names: resolved,
+        question_ids: selectedIds,
+        resolved_dc_ids: selectedIds,
+        resolved_dc_names: Array.from(new Set(resolvedNames)),
       },
     });
+    if (guidedSummary) {
+      setGuidedSummary(null);
+    }
+    if (researchResults) {
+      setResearchResults(null);
+    }
   };
 
 
   const hasConfiguredStreams = useMemo(() => {
     return streams.some(stream => stream.mappedDataComponents.length > 0);
   }, [streams]);
+
+  const selectedGuidedComponents = useMemo(() => {
+    const set = new Set<string>();
+    streams.forEach(stream => {
+      stream.mappedDataComponents.forEach(component => set.add(component));
+    });
+    return Array.from(set);
+  }, [streams]);
+
+  const enrichmentByDcId = useMemo(() => {
+    const map: Record<string, EnrichedEvidence> = {};
+    const streamMeta = streams[0]?.metadata as Record<string, unknown> | undefined;
+    const stored = streamMeta?.ai_enrichment || streamMeta?.aiEnrichment;
+    const storedResults = stored && typeof stored === 'object'
+      ? (stored as { results?: unknown }).results
+      : undefined;
+    const results = researchResults?.results && researchResults.results.length > 0
+      ? researchResults.results
+      : Array.isArray(storedResults) ? storedResults : [];
+
+    results.forEach((entry: any) => {
+      const dcId = typeof entry?.dcId === 'string'
+        ? entry.dcId
+        : typeof entry?.dataComponentId === 'string'
+          ? entry.dataComponentId
+          : entry?.data_component_id || entry?.dc_id;
+      const dcName = typeof entry?.dcName === 'string'
+        ? entry.dcName
+        : typeof entry?.dataComponentName === 'string'
+          ? entry.dataComponentName
+          : entry?.data_component_name || entry?.dc_name || dcId;
+      if (!dcId) return;
+      const logSources = Array.isArray(entry?.logSources)
+        ? entry.logSources
+        : Array.isArray(entry?.log_sources) ? entry.log_sources : [];
+      const normalizedSources = Array.isArray(logSources)
+        ? logSources.map((source: any) => {
+          const channelArray = normalizeChannelArray(source?.channel);
+          return {
+            name: typeof source?.name === 'string' ? source.name : '',
+            channel: channelArray.length > 0 ? channelArray : undefined,
+            requiredFields: Array.isArray(source?.requiredFields)
+              ? source.requiredFields
+              : Array.isArray(source?.required_fields) ? source.required_fields : [],
+            missingFields: Array.isArray(source?.missingFields)
+              ? source.missingFields
+              : Array.isArray(source?.missing_fields) ? source.missing_fields : [],
+            evidence: typeof source?.evidence === 'string' ? source.evidence : undefined,
+            sourceUrl: typeof source?.sourceUrl === 'string'
+              ? source.sourceUrl
+              : typeof source?.source_url === 'string' ? source.source_url : undefined,
+            notes: normalizeString(source?.notes) || undefined,
+            verifiedByAi: source?.verifiedByAi === true || source?.verified_by_ai === true ? true : source?.verifiedByAi === false || source?.verified_by_ai === false ? false : undefined,
+          };
+        }).filter((source: { name: string }) => source.name.trim().length > 0)
+        : [];
+      const targetFields = Array.isArray(entry?.targetFields)
+        ? entry.targetFields
+        : Array.isArray(entry?.target_fields) ? entry.target_fields : [];
+
+      map[String(dcId).toLowerCase()] = {
+        dcId: String(dcId),
+        dcName: String(dcName || dcId),
+        logSources: normalizedSources,
+        targetFields,
+      };
+    });
+
+    return map;
+  }, [researchResults, streams]);
+
+  const researchSuggestedPlatforms = useMemo(() => {
+    const suggestions = researchResults?.platformSuggestions;
+    if (!Array.isArray(suggestions)) return [];
+    const normalizedPlatforms = suggestions
+      .map((entry) => (typeof entry?.platform === 'string' ? entry.platform.trim() : ''))
+      .filter((platform) => platform.length > 0);
+    return normalizePlatformList(normalizedPlatforms);
+  }, [researchResults]);
+
+  const platformCheckValidation = useMemo(() => {
+    const validationRaw = platformCheckResults?.validation
+      ?? (platformCheckResults as { validation?: unknown } | null)?.validation
+      ?? [];
+    if (!Array.isArray(validationRaw)) return [];
+    const seen = new Set<string>();
+    return validationRaw.map((entry: any) => {
+      const platform = typeof entry?.platform === 'string' ? entry.platform : '';
+      const rawSupported = entry?.isSupported ?? entry?.is_supported;
+      let isSupported: boolean | null = null;
+      if (typeof rawSupported === 'boolean') {
+        isSupported = rawSupported;
+      } else if (typeof rawSupported === 'string') {
+        const normalized = rawSupported.trim().toLowerCase();
+        if (normalized === 'true' || normalized === 'yes') isSupported = true;
+        if (normalized === 'false' || normalized === 'no') isSupported = false;
+      }
+      if (!platform || isSupported === null) return null;
+      const key = platform.toLowerCase();
+      if (seen.has(key)) return null;
+      seen.add(key);
+      return {
+        platform,
+        isSupported,
+        reasoning: typeof entry?.reasoning === 'string'
+          ? entry.reasoning
+          : typeof entry?.reason === 'string' ? entry.reason : undefined,
+        evidence: typeof entry?.evidence === 'string' ? entry.evidence : undefined,
+        sourceUrl: typeof entry?.sourceUrl === 'string'
+          ? entry.sourceUrl
+          : typeof entry?.source_url === 'string' ? entry.source_url : undefined,
+      };
+    }).filter((entry: PlatformValidationResult | null): entry is PlatformValidationResult => Boolean(entry));
+  }, [platformCheckResults]);
+
+  const platformCheckAlternatives = useMemo(() => {
+    const alternativesRaw = platformCheckResults?.alternativePlatformsFound
+      ?? (platformCheckResults as { alternative_platforms_found?: unknown } | null)?.alternative_platforms_found
+      ?? [];
+    if (!Array.isArray(alternativesRaw)) return [];
+    const seen = new Set<string>();
+    return alternativesRaw.map((entry: any) => {
+      const platform = typeof entry?.platform === 'string' ? entry.platform : '';
+      if (!platform) return null;
+      const key = platform.toLowerCase();
+      if (seen.has(key)) return null;
+      seen.add(key);
+      return {
+        platform,
+        reason: typeof entry?.reason === 'string' ? entry.reason : undefined,
+        evidence: typeof entry?.evidence === 'string' ? entry.evidence : undefined,
+        sourceUrl: typeof entry?.sourceUrl === 'string'
+          ? entry.sourceUrl
+          : typeof entry?.source_url === 'string' ? entry.source_url : undefined,
+      };
+    }).filter((entry: PlatformAlternativeResult | null): entry is PlatformAlternativeResult => Boolean(entry));
+  }, [platformCheckResults]);
+
+  const platformCheckSummary = useMemo(() => {
+    if (platformCheckValidation.length === 0) {
+      if (!platformCheckHasRun || selectedPlatformsList.length === 0) return null;
+      return {
+        supported: [],
+        unsupported: [],
+        noEvidence: [...selectedPlatformsList],
+      };
+    }
+    const validationMap = new Map(
+      platformCheckValidation.map((entry) => [entry.platform.toLowerCase(), entry])
+    );
+    const supported: string[] = [];
+    const unsupported: string[] = [];
+    const noEvidence: string[] = [];
+    selectedPlatformsList.forEach((platform) => {
+      const match = validationMap.get(platform.toLowerCase());
+      if (!match) {
+        noEvidence.push(platform);
+        return;
+      }
+      if (match.isSupported) {
+        supported.push(platform);
+      } else {
+        unsupported.push(platform);
+      }
+    });
+    return {
+      supported,
+      unsupported,
+      noEvidence,
+    };
+  }, [platformCheckValidation, platformCheckHasRun, selectedPlatformsList]);
+
+  const stixPlatformsByDcId = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    dataComponents.forEach((component) => {
+      if (!component.id) return;
+      const rawPlatforms = Array.isArray(component.platforms)
+        ? component.platforms.filter((platform) => typeof platform === 'string' && platform.trim().length > 0)
+        : [];
+      map[component.id.toLowerCase()] = normalizePlatformList(rawPlatforms);
+    });
+    return map;
+  }, [dataComponents]);
 
   const handleTogglePlatform = (platform: string) => {
     setSelectedPlatforms(prev => {
@@ -793,14 +1385,396 @@ export function AIMapperFlow({ initialQuery, existingProductId, mode = 'create',
       });
       return;
     }
-    setStep('review');
+    setStep(platformCheckEnabled ? 'platform-review' : 'review');
   };
 
-  const handleNextStreams = async () => {
+  const handleBackStreams = () => {
+    if (guidedContextIndex > 0) {
+      setGuidedContextIndex(prev => Math.max(0, prev - 1));
+      return;
+    }
+    setStep('auto-results');
+  };
+
+  const runPlatformCheck = async () => {
+    if (platformCheckLoading || platformCheckHasRun) return;
+    if (!platformCheckEnabled) return;
+    if (!vendor.trim() && !product.trim()) {
+      toast({
+        title: 'Missing product info',
+        description: 'Add a vendor or product name before running the platform check.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    let didAttempt = false;
+    try {
+      setPlatformCheckLoading(true);
+      didAttempt = true;
+      const response = await fetch('/api/ai/research/platforms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vendor,
+          product,
+          description,
+          platforms: selectedPlatformsList,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || 'Failed to run platform check');
+      }
+      setPlatformCheckResults(payload);
+      const validationCount = Array.isArray(payload.validation)
+        ? payload.validation.length
+        : 0;
+      const alternativeCount = Array.isArray(payload.alternativePlatformsFound)
+        ? payload.alternativePlatformsFound.length
+        : 0;
+      toast({
+        title: 'Platform check complete',
+        description: validationCount > 0
+          ? `Validated ${validationCount} platform${validationCount === 1 ? '' : 's'} with evidence.`
+          : alternativeCount > 0
+            ? `Found ${alternativeCount} alternative platform${alternativeCount === 1 ? '' : 's'} outside the selected focus.`
+            : 'No platform evidence was returned.',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unexpected error';
+      toast({
+        title: 'Platform check failed',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setPlatformCheckLoading(false);
+      if (didAttempt) {
+        setPlatformCheckHasRun(true);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (step !== 'platform-review') return;
+    if (platformCheckHasRun || platformCheckLoading) return;
+    void runPlatformCheck();
+  }, [step, platformCheckHasRun, platformCheckLoading]);
+
+  useEffect(() => {
+    if (!platformCheckEnabled && step === 'platform-review') {
+      setStep('review');
+    }
+  }, [platformCheckEnabled, step]);
+
+  const handleGeminiSuggest = async () => {
+    if (geminiLoading) return;
+    if (selectedPlatformsList.length === 0) {
+      toast({
+        title: 'Select platforms first',
+        description: 'Choose at least one platform before running Gemini mapping.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setGeminiLoading(true);
+      setGeminiSuggestionCount(null);
+      setGeminiEvaluationCount(null);
+      setGeminiDecisionMap({});
+      setGeminiSources([]);
+      setGeminiNotes(null);
+      const response = await fetch('/api/ai/gemini/data-components', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vendor,
+          product,
+          aliases,
+          platforms: selectedPlatformsList,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || 'Failed to generate Gemini suggestions');
+      }
+
+      const mappingPayload = payload as GeminiMappingResponse;
+      const decisions = Array.isArray(mappingPayload.decisions) ? mappingPayload.decisions : [];
+      const decisionMap: Record<string, GeminiMappingDecision> = {};
+      decisions.forEach((decision) => {
+        if (!decision || typeof decision.id !== 'string') return;
+        decisionMap[decision.id] = {
+          id: decision.id,
+          selected: Boolean(decision.selected),
+          reason: typeof decision.reason === 'string' ? decision.reason : undefined,
+          evidence: typeof decision.evidence === 'string' ? decision.evidence : undefined,
+          sourceUrl: typeof decision.sourceUrl === 'string'
+            ? decision.sourceUrl
+            : typeof (decision as { source_url?: string }).source_url === 'string'
+              ? (decision as { source_url?: string }).source_url
+              : undefined,
+        };
+      });
+      const selectedFromDecisions = decisions
+        .filter((decision) => decision?.selected && typeof decision.id === 'string')
+        .map((decision) => decision.id);
+      const suggestedIds = Array.from(new Set(
+        Array.isArray(mappingPayload.suggestedIds)
+          ? mappingPayload.suggestedIds
+          : selectedFromDecisions
+      ));
+      if (suggestedIds.length === 0) {
+        toast({
+          title: 'No suggestions returned',
+          description: 'Gemini did not return any data components for this product.',
+        });
+        return;
+      }
+
+      const streamIndex = 0;
+      const nextAnswers = { ...(streams[streamIndex]?.questionAnswers || {}) };
+      suggestedIds.forEach((id: string) => {
+        nextAnswers[id] = true;
+      });
+
+      updateStreamGuided(streamIndex, { questionAnswers: nextAnswers });
+      applyGuidedMapping(streamIndex, nextAnswers);
+      setGeminiSuggestionCount(suggestedIds.length);
+      setGeminiEvaluationCount(
+        typeof mappingPayload.evaluatedCount === 'number'
+          ? mappingPayload.evaluatedCount
+          : decisions.length > 0
+            ? decisions.length
+            : typeof mappingPayload.candidateCount === 'number'
+              ? mappingPayload.candidateCount
+              : null
+      );
+      setGeminiDecisionMap(decisionMap);
+      setGeminiSources(Array.isArray(mappingPayload.sources) ? mappingPayload.sources : []);
+      setGeminiNotes(typeof mappingPayload.notes === 'string' ? mappingPayload.notes : null);
+      toast({
+        title: 'Gemini suggestions applied',
+        description: `Selected ${suggestedIds.length} data components.`,
+      });
+      if (typeof mappingPayload.notes === 'string' && mappingPayload.notes.trim().length > 0) {
+        toast({
+          title: 'Gemini note',
+          description: mappingPayload.notes.trim(),
+        });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unexpected error';
+      toast({
+        title: 'Gemini mapping failed',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setGeminiLoading(false);
+    }
+  };
+
+  const handleResearchEnrichment = async () => {
+    if (researchLoading) return;
+    if (selectedGuidedComponents.length === 0) {
+      toast({
+        title: 'Select data components',
+        description: 'Choose at least one data component before running experimental research.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setResearchLoading(true);
+      setResearchResults(null);
+      const response = await fetch('/api/ai/research/log-sources', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vendor,
+          product,
+          description,
+          aliases,
+          platforms: selectedPlatformsList,
+          dataComponentIds: selectedGuidedComponents,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || 'Failed to run experimental research');
+      }
+
+      setResearchResults(payload);
+      const populated = Array.isArray(payload.results)
+        ? payload.results.filter((entry: ResearchResultEntry) => entry.logSources?.length > 0).length
+        : 0;
+      toast({
+        title: 'Research enrichment complete',
+        description: populated > 0
+          ? `Found log source details for ${populated} data component${populated === 1 ? '' : 's'}.`
+          : 'No log source details were found. Try adjusting the product description.',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unexpected error';
+      toast({
+        title: 'Experimental research failed',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setResearchLoading(false);
+    }
+  };
+
+  const handleConfirmResearchResults = async () => {
+    if (!researchResults) {
+      toast({
+        title: 'No research results',
+        description: 'Run experimental research before confirming.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (!createdProductId) {
+      toast({
+        title: 'Product not ready',
+        description: 'Create the product before confirming research results.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (researchConfirming) return;
+
+    try {
+      setResearchConfirming(true);
+      const now = new Date().toISOString();
+      const enrichedResults = researchResults.results.map((entry) => ({
+        data_component_id: entry.dcId,
+        data_component_name: entry.dcName,
+        target_fields: entry.targetFields || [],
+        log_sources: entry.logSources.map((source) => ({
+          name: source.name,
+          channel: (() => {
+            const channels = normalizeChannelArray(source.channel);
+            return channels.length > 0 ? channels : undefined;
+          })(),
+          required_fields: source.requiredFields || [],
+          missing_fields: source.missingFields || [],
+          evidence: source.evidence,
+          notes: source.notes,
+          source_url: source.sourceUrl,
+          verified_by_ai: source.verifiedByAi === true ? true : source.verifiedByAi === false ? false : undefined,
+        })),
+      }));
+      const platformSuggestions = (researchResults.platformSuggestions || []).map((entry) => ({
+        platform: entry.platform,
+        reason: entry.reason,
+        evidence: entry.evidence,
+        source_url: entry.sourceUrl,
+      }));
+      const existingEnrichment = streams[0]?.metadata
+        ? (streams[0].metadata as { ai_enrichment?: unknown; aiEnrichment?: unknown }).ai_enrichment
+          ?? (streams[0].metadata as { ai_enrichment?: unknown; aiEnrichment?: unknown }).aiEnrichment
+        : undefined;
+      const mergedResults = mergeEnrichmentResults(
+        existingEnrichment && typeof existingEnrichment === 'object'
+          ? (existingEnrichment as { results?: unknown }).results
+          : [],
+        enrichedResults
+      );
+      const mergedPlatformSuggestions = mergePlatformSuggestions(
+        existingEnrichment && typeof existingEnrichment === 'object'
+          ? (existingEnrichment as { platform_suggestions?: unknown; platformSuggestions?: unknown }).platform_suggestions
+            ?? (existingEnrichment as { platformSuggestions?: unknown }).platformSuggestions
+          : [],
+        platformSuggestions
+      );
+      const requiredFields = mergedResults
+        .flatMap((entry) => entry.log_sources.flatMap((source) => source.required_fields || []))
+        .map((field) => field.trim())
+        .filter((field) => field.length > 0);
+      const uniqueFields = Array.from(new Set(requiredFields));
+
+      const normalizedStreams = streams.map((stream, index) => {
+        if (index !== 0) return stream;
+        const streamName = stream.name.trim() || defaultEvidenceSourceName;
+        const nextMetadata = {
+          ...(stream.metadata || {}),
+          ai_enrichment: {
+            confirmed: true,
+            confirmed_at: now,
+            model: researchResults.model,
+            note: researchResults.note || (existingEnrichment as { note?: string })?.note,
+            results: mergedResults,
+            platform_suggestions: mergedPlatformSuggestions,
+          },
+          fields: uniqueFields,
+        };
+        return {
+          ...stream,
+          name: streamName,
+          metadata: nextMetadata,
+        };
+      });
+
+      setStreams(normalizedStreams);
+      await saveProductStreams(createdProductId, normalizedStreams);
+      toast({
+        title: 'Evidence confirmed',
+        description: 'Research evidence saved to product telemetry metadata.',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unexpected error';
+      toast({
+        title: 'Failed to confirm evidence',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setResearchConfirming(false);
+    }
+  };
+
+  const handleNextStreams = () => {
+    if (wizardContextOptions.length === 0) {
+      const description = dataComponentsFallbackReason === 'no_platform_metadata'
+        ? 'MITRE data components in this dataset have no platform metadata. Use "Show unscoped data components" to continue.'
+        : dataComponentsFallbackReason === 'graph_unavailable'
+          ? 'The MITRE graph is unavailable. Initialize the dataset or show unscoped data components to continue.'
+          : dataComponentsFallbackReason === 'no_platform_matches'
+            ? 'No data components match the selected platforms. Adjust your platform selection.'
+            : 'Adjust the platform selection to load data components.';
+      toast({
+        title: 'No data components found',
+        description,
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (guidedContextIndex < wizardContextOptions.length - 1) {
+      setGuidedContextIndex(prev => Math.min(prev + 1, wizardContextOptions.length - 1));
+      return;
+    }
     if (!hasConfiguredStreams) {
       toast({
-        title: 'Answer at least one question',
-        description: 'Select at least one guided question so we can map data components.',
+        title: 'Select at least one data component',
+        description: 'Choose at least one data component so we can map coverage.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setStep('guided-summary');
+  };
+
+  const handleSaveGuidedCoverage = async () => {
+    if (!hasConfiguredStreams) {
+      toast({
+        title: 'Select at least one data component',
+        description: 'Choose at least one data component so we can map coverage.',
         variant: 'destructive',
       });
       return;
@@ -851,6 +1825,9 @@ export function AIMapperFlow({ initialQuery, existingProductId, mode = 'create',
 
   const handleAutoMap = async () => {
     if (isSubmitting) return;
+    if (platformCheckEnabled) {
+      void runPlatformCheck();
+    }
     setIsSubmitting(true);
     setStep('analyzing');
     let created: CreatedProduct | null = null;
@@ -862,19 +1839,20 @@ export function AIMapperFlow({ initialQuery, existingProductId, mode = 'create',
       const finalVendor = vendorTrimmed || productTrimmed;
       const finalProduct = productTrimmed || vendorTrimmed;
       const productId = buildProductId(finalVendor, finalProduct);
-      created = await createProduct({
+      const createdProduct = await createProduct({
         productId,
         vendor: finalVendor,
         productName: finalProduct,
         description: description.trim(),
-        platforms: Array.from(selectedPlatforms),
+        platforms: selectedPlatformsList,
         dataComponentIds: [],
         source: 'custom',
       });
+      created = createdProduct;
 
       if (aliases.length > 0) {
         setProgressMessage('Saving aliases...');
-        await Promise.all(aliases.map(alias => addAlias(created.id, alias)));
+        await Promise.all(aliases.map(alias => addAlias(createdProduct.id, alias)));
       }
 
       setProgressMessage('Saving evidence sources...');
@@ -882,16 +1860,16 @@ export function AIMapperFlow({ initialQuery, existingProductId, mode = 'create',
         ...stream,
         name: stream.name.trim() || defaultEvidenceSourceName,
       }));
-      await saveProductStreams(created.productId, normalizedStreams);
+      await saveProductStreams(createdProduct.productId, normalizedStreams);
 
       setProgressMessage('Running auto mapper...');
-      await runAutoMapper(created.productId);
+      await runAutoMapper(createdProduct.productId);
       setProgressMessage('Finalizing mapping...');
-      const mappingResult = await waitForMapping(created.productId);
+      const mappingResult = await waitForMapping(createdProduct.productId);
 
-      setCreatedProductId(created.productId);
+      setCreatedProductId(createdProduct.productId);
       setProgressMessage('Preparing evidence prompts...');
-      const ssm = await fetchProductSsm(created.productId);
+      const ssm = await fetchProductSsm(createdProduct.productId);
       setSsmCapabilities(ssm);
 
       const techniqueIds = Array.from(
@@ -931,12 +1909,11 @@ export function AIMapperFlow({ initialQuery, existingProductId, mode = 'create',
         title: 'Auto mapping complete',
         description: `${product} has been created and mapped.`,
       });
-
-      if (techniqueIds.length < EVIDENCE_AUTO_THRESHOLD || wantsEvidence) {
-        setStep('streams');
-      } else {
-        setStep('complete');
-      }
+      const nextStep: Step = (techniqueIds.length < EVIDENCE_AUTO_THRESHOLD || wantsEvidence)
+        ? 'streams'
+        : 'complete';
+      setAutoResultsNextStep(nextStep);
+      setStep('auto-results');
     } catch (error) {
       console.error(error);
       if (created?.productId) {
@@ -1064,7 +2041,7 @@ export function AIMapperFlow({ initialQuery, existingProductId, mode = 'create',
     return (
       <>
         {renderStepper()}
-        <Card className="bg-card/50 backdrop-blur border-border max-w-2xl mx-auto">
+        <Card className="bg-transparent border-none shadow-none w-full">
           <CardHeader>
             <CardTitle>Product details</CardTitle>
             <CardDescription>
@@ -1157,7 +2134,7 @@ export function AIMapperFlow({ initialQuery, existingProductId, mode = 'create',
     return (
       <>
         {renderStepper()}
-        <Card className="bg-card/50 backdrop-blur border-border max-w-3xl mx-auto">
+        <Card className="bg-transparent border-none shadow-none w-full">
           <CardHeader>
             <CardTitle>Select MITRE platforms</CardTitle>
             <CardDescription>
@@ -1200,11 +2177,11 @@ export function AIMapperFlow({ initialQuery, existingProductId, mode = 'create',
               </div>
             )}
 
-            {suggestedPlatforms.length > 0 && (
+            {heuristicSuggestedPlatforms.length > 0 && (
               <div className="rounded-lg border border-dashed border-border/80 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
                 Suggested based on your details:
                 <div className="flex flex-wrap gap-2 mt-2">
-                  {suggestedPlatforms.map(platform => (
+                  {heuristicSuggestedPlatforms.map(platform => (
                     <Badge key={platform} variant="secondary">
                       {platform}
                     </Badge>
@@ -1212,6 +2189,19 @@ export function AIMapperFlow({ initialQuery, existingProductId, mode = 'create',
                 </div>
               </div>
             )}
+
+            <div className="rounded-lg border border-border/60 bg-background/60 px-3 py-2 text-xs text-muted-foreground space-y-2">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  checked={platformCheckEnabled}
+                  onCheckedChange={(checked) => setPlatformCheckEnabled(checked === true)}
+                />
+                <span className="text-foreground">Run Gemini platform check</span>
+              </div>
+              <div>
+                Optional: verify your selected platforms against vendor documentation before moving forward.
+              </div>
+            </div>
 
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span>{selectedPlatforms.size} selected</span>
@@ -1233,271 +2223,290 @@ export function AIMapperFlow({ initialQuery, existingProductId, mode = 'create',
   }
 
   if (step === 'streams') {
+    const currentGroup = groupedDataComponents[guidedContextIndex];
+    const currentContext = currentGroup?.group;
+    const totalQuestions = currentGroup ? currentGroup.components.length : 0;
+    const isLastContext = wizardContextOptions.length > 0
+      && guidedContextIndex === wizardContextOptions.length - 1;
+    const nextLabel = isLastContext ? 'Review requirements' : 'Next platform';
+
     return (
       <>
         {renderStepper()}
-        <Card className="bg-card/50 backdrop-blur border-border max-w-4xl mx-auto">
+        <Card className="bg-transparent border-none shadow-none w-full">
           <CardHeader>
-            <CardTitle>Guided questions</CardTitle>
+            <CardTitle>Data component wizard</CardTitle>
             <CardDescription>
-              Answer the questions below to map your telemetry to MITRE data components.
+              For each platform, select the tiles that match telemetry you can collect.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-6">
-            {mappingSummary && (
-              <Card className="bg-primary/5 border-primary/20">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-green-500" />
-                    Auto-Mapper Results
-                  </CardTitle>
-                  <CardDescription className="text-xs">
-                    {mappingSummary.techniques > 0
-                      ? 'We found initial coverage. Answer questions below to expand telemetry mapping.'
-                      : 'No automatic mappings found. Answer questions below to build coverage.'}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-4 gap-2">
-                    <div className="text-center p-2 rounded bg-background/40">
-                      <div className="text-lg font-semibold text-foreground">{mappingSummary.techniques}</div>
-                      <div className="text-xs text-muted-foreground">Techniques</div>
-                    </div>
-                    <div className="text-center p-2 rounded bg-background/40">
-                      <div className="text-lg font-semibold text-foreground">{mappingSummary.analytics}</div>
-                      <div className="text-xs text-muted-foreground">Analytics</div>
-                    </div>
-                    <div className="text-center p-2 rounded bg-background/40">
-                      <div className="text-lg font-semibold text-foreground">{mappingSummary.dataComponents}</div>
-                      <div className="text-xs text-muted-foreground">Data Components</div>
-                    </div>
-                    <div className="text-center p-2 rounded bg-background/40">
-                      <div className="text-xs text-muted-foreground mb-1">Sources</div>
-                      <div className="text-xs text-foreground">
-                        {mappingSummary.sources.length > 0 ? mappingSummary.sources.join(', ') : 'Custom'}
-                      </div>
+          <CardContent className="space-y-6 pb-32">
+            <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 text-xs text-muted-foreground space-y-2">
+              <p>
+                A Data Component is ATT&CK’s definition of a telemetry element that is used for detections to identify
+                specific techniques and sub-techniques of an attack (Usually its a log entry for e.g., Process Creation,
+                Network Connection Creation, User Account Authentication).
+              </p>
+              <p>
+                Select the components the data source can generate (usually a log) that can be collected.
+              </p>
+              <p>
+                Use the description and examples in each entry to decide; if you can’t collect it, leave it unchecked.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={handleGeminiSuggest}
+                disabled={geminiLoading || selectedPlatformsList.length === 0}
+                title="Use Gemini to suggest which data components to select based on the product details and platforms."
+              >
+                {geminiLoading ? 'Mapping with Gemini...' : 'Auto-select with Gemini'}
+              </Button>
+            </div>
+            {geminiSuggestionCount !== null && (
+              <div className="text-xs text-muted-foreground">
+                {`Gemini evaluated ${geminiEvaluationCount ?? dataComponents.length} of ${dataComponents.length} data components and selected ${geminiSuggestionCount}. Review before continuing.`}
+              </div>
+            )}
+            {geminiSuggestionCount !== null && (
+              <div className="rounded-lg border border-border/60 bg-background/60 px-3 py-2 text-xs text-muted-foreground space-y-2">
+                <div className="font-semibold text-foreground">Gemini mapping summary</div>
+                {geminiNotes && (
+                  <div>Notes: {geminiNotes}</div>
+                )}
+                {geminiSources.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="font-medium text-foreground">Sources</div>
+                    <div className="flex flex-wrap gap-2">
+                      {geminiSources.map((source) => (
+                        <a
+                          key={source.url}
+                          href={source.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="underline underline-offset-2 text-primary"
+                        >
+                          {source.title || source.url}
+                        </a>
+                      ))}
                     </div>
                   </div>
-                </CardContent>
-              </Card>
+                )}
+              </div>
             )}
-            <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 text-xs text-muted-foreground space-y-3">
-              <p>
-                Those fields come from combining what the MITRE Data Component definition explicitly says is being captured
-                with the minimum who/what/when/where/outcome attributes needed to make telemetry usable for correlation and analytics.
-              </p>
-              <p>
-                Use MITRE Data Components to define what capability the data source provides, then confirm a small, consistent
-                field checklist to ensure the capability is actionable in detection engineering.
-              </p>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Checkbox
-                checked={includeEnrichment}
-                onCheckedChange={(checked) => {
-                  const next = checked === true;
-                  setIncludeEnrichment(next);
-                  resetStreamGuided();
-                }}
-              />
-              <span>Include external threat intelligence</span>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Checkbox
-                checked={includeDatabaseQuestions}
-                onCheckedChange={(checked) => {
-                  const next = checked === true;
-                  setIncludeDatabaseQuestions(next);
-                  resetStreamGuided();
-                }}
-              />
-              <span>Include database platform questions</span>
-            </div>
-            <div className="text-sm text-muted-foreground">
-              Recommended data components are highlighted for {dataComponentPlatform || 'your selected platform'}.
-            </div>
-
+            {dataComponentsLoading && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Loading MITRE data components...
+              </div>
+            )}
+            {dataComponentsError && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-600">
+                Unable to load MITRE data components. Ensure the MITRE graph is initialized.
+              </div>
+            )}
+            {canShowUnscopedToggle && !includeUnscopedDataComponents && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 space-y-2">
+                <div>
+                  {dataComponentsFallbackReason === 'graph_unavailable'
+                    ? 'The MITRE graph is unavailable, so strict platform filtering returned no data components.'
+                    : 'This dataset does not include platform metadata for data components, so strict filtering returned no results.'}
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setIncludeUnscopedDataComponents(true)}
+                >
+                  Show unscoped data components
+                </Button>
+              </div>
+            )}
+            {dataComponentsFallbackReason === 'no_platform_matches' && !dataComponentsLoading && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
+                No data components matched the selected platforms. Adjust your platform selection to continue.
+              </div>
+            )}
+            {dataComponentsMeta?.unscopedIncluded && (
+              <div className="rounded-lg border border-border/60 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+                Showing unscoped data components because platform metadata is unavailable.
+              </div>
+            )}
             <div className="space-y-4">
               {streams.slice(0, 1).map((stream, index) => (
                 <div key={`stream-${index}`} className="border border-border rounded-lg p-4 space-y-4 bg-background/40">
-                  {wizardContextOptions.length > 0 ? (
-                    <>
-                      <div className="space-y-6">
-                        {wizardContextOptions.map((context, contextIdx) => (
-                          <div key={`${context}-${index}`}>
-                            {contextIdx > 0 && <Separator className="my-6" />}
-                            <div className="space-y-3">
-                              <div className="flex items-center gap-2">
-                                <div className="text-xs uppercase text-primary font-semibold tracking-wide">{context}</div>
-                                <Badge variant="outline" className="text-xs">
-                                  {WIZARD_QUESTION_SETS[context]?.categories.reduce((sum, cat) => sum + cat.questions.length, 0)} questions
-                                </Badge>
-                              </div>
-                              <ScrollArea className="h-96 border border-border rounded-md p-3">
-                                <div className="space-y-4">
-                                  {WIZARD_QUESTION_SETS[context]?.categories.map(category => {
-                                    const advancedQuestions = category.questions.filter(question => question.advanced);
-                                    const coreQuestions = category.questions.filter(question => !question.advanced);
-                                    const showAdvanced = stream.metadata?.[`show_advanced_${category.id}`] === true;
-
-                                    return (
-                                      <div key={`${category.id}-${index}-${context}`} className="space-y-2">
-                                        <div className="text-sm font-semibold text-foreground">{category.label}</div>
-                                        {category.description && (
-                                          <div className="text-xs text-muted-foreground">{category.description}</div>
-                                        )}
-                                        <div className="space-y-3">
-                                          {coreQuestions.map(question => {
-                                            const isChecked = Boolean(stream.questionAnswers?.[question.id]);
-                                            const displayText = question.text.replace(/^Does it/i, 'Does the data source');
-                                            const { missing } = resolveComponentNames(question.dcNames);
-                                            return (
-                                              <label key={`${question.id}-${index}-${context}`} className="flex items-start gap-2 text-sm">
-                                                <Checkbox
-                                                  checked={isChecked}
-                                                  onCheckedChange={(checked) => {
-                                                    const nextAnswers = { ...(stream.questionAnswers || {}) };
-                                                    if (checked === true) {
-                                                      nextAnswers[question.id] = true;
-                                                    } else {
-                                                      delete nextAnswers[question.id];
-                                                    }
-                                                    updateStreamGuided(index, { questionAnswers: nextAnswers });
-                                                    applyGuidedMapping(index, nextAnswers);
-                                                  }}
-                                                />
-                                                <span className="flex-1">
-                                                  <span className="text-foreground">{displayText}</span>
-                                                  {question.dcNames.length > 0 && (
-                                                    <span className="block text-xs text-muted-foreground mt-1">
-                                                      Data components: {question.dcNames.join(', ')}
-                                                    </span>
-                                                  )}
-                                                  {missing.length > 0 && (
-                                                    <span className="block text-xs text-amber-500 mt-1">
-                                                      Not in bundle/version: {missing.join(', ')}
-                                                    </span>
-                                                  )}
-                                                  {isChecked && question.dcNames.length > 0 && (
-                                                    <InlineRequirementHint dcNames={question.dcNames} />
-                                                  )}
-                                                </span>
-                                              </label>
-                                            );
-                                          })}
-                                        </div>
-                                        {advancedQuestions.length > 0 && (
-                                          <div className="pt-2">
-                                            <Button
-                                              type="button"
-                                              variant="ghost"
-                                              size="sm"
-                                              onClick={() => {
-                                                updateStreamGuided(index, {
-                                                  metadata: {
-                                                    ...(stream.metadata || {}),
-                                                    [`show_advanced_${category.id}`]: !showAdvanced,
-                                                  },
-                                                });
-                                              }}
-                                              className="text-xs text-muted-foreground hover:text-foreground"
-                                            >
-                                          {showAdvanced ? 'Hide advanced' : 'Show advanced'}
-                                        </Button>
-                                        {showAdvanced && (
-                                          <div className="mt-2 space-y-3">
-                                            {advancedQuestions.map(question => {
-                                              const isChecked = Boolean(stream.questionAnswers?.[question.id]);
-                                              const displayText = question.text.replace(/^Does it/i, 'Does the data source');
-                                              const { missing } = resolveComponentNames(question.dcNames);
-                                              return (
-                                                <label key={`${question.id}-${index}-${context}-advanced`} className="flex items-start gap-2 text-sm">
-                                                  <Checkbox
-                                                    checked={isChecked}
-                                                    onCheckedChange={(checked) => {
-                                                      const nextAnswers = { ...(stream.questionAnswers || {}) };
-                                                      if (checked === true) {
-                                                        nextAnswers[question.id] = true;
-                                                      } else {
-                                                        delete nextAnswers[question.id];
-                                                      }
-                                                      updateStreamGuided(index, { questionAnswers: nextAnswers });
-                                                      applyGuidedMapping(index, nextAnswers);
-                                                    }}
-                                                  />
-                                                  <span className="flex-1">
-                                                    <span className="text-foreground">{displayText}</span>
-                                                    {question.dcNames.length > 0 && (
-                                                      <span className="block text-xs text-muted-foreground mt-1">
-                                                        Data components: {question.dcNames.join(', ')}
-                                                      </span>
-                                                    )}
-                                                    {missing.length > 0 && (
-                                                      <span className="block text-xs text-amber-500 mt-1">
-                                                        Not in bundle/version: {missing.join(', ')}
-                                                      </span>
-                                                    )}
-                                                    {isChecked && question.dcNames.length > 0 && (
-                                                      <InlineRequirementHint dcNames={question.dcNames} />
-                                                    )}
-                                                  </span>
-                                                </label>
-                                              );
-                                            })}
-                                          </div>
-                                        )}
-                                      </div>
-                                    )}
+                  {currentGroup ? (
+                    <div className="space-y-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="text-xs uppercase text-primary font-semibold tracking-wide">
+                            {currentGroup.group}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            Platform {guidedContextIndex + 1} of {wizardContextOptions.length}
+                          </div>
+                        </div>
+                        <Badge variant="outline" className="text-xs">
+                          {totalQuestions} data components
+                        </Badge>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {currentGroup.components.map(component => {
+                          const isChecked = Boolean(stream.questionAnswers?.[component.id]);
+                          const description = component.shortDescription || component.description || '';
+                          const aiDecision = geminiDecisionMap[component.id];
+                          const aiSelected = Boolean(aiDecision?.selected);
+                          return (
+                            <label
+                              key={`${component.id}-${index}-${currentContext}`}
+                              className={cn(
+                                'flex flex-col gap-2 rounded-lg border p-3 text-xs sm:text-sm cursor-pointer transition-colors',
+                                isChecked
+                                  ? 'border-primary bg-primary/10 shadow-sm'
+                                  : component.relevanceScore
+                                    ? 'border-primary/30 bg-primary/5'
+                                    : 'border-border/60 bg-background/40 hover:bg-muted/30'
+                              )}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="space-y-2">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <div className="text-sm font-semibold text-foreground">
+                                      Do the product/service generate a log for {component.name}?
+                                    </div>
+                                    <Badge variant="outline" className="text-[10px]">
+                                      {component.id}
+                                    </Badge>
                                   </div>
-                                );
-                              })}
+                                  {aiSelected && (
+                                    <Badge variant="secondary" className="text-[10px] w-fit">
+                                      AI Selected
+                                    </Badge>
+                                  )}
                                 </div>
-                              </ScrollArea>
-                              {context === 'External Threat Intelligence' && (
+                                <Checkbox
+                                  checked={isChecked}
+                                  onCheckedChange={(checked) => {
+                                    const nextAnswers = { ...(stream.questionAnswers || {}) };
+                                    if (checked === true) {
+                                      nextAnswers[component.id] = true;
+                                    } else {
+                                      delete nextAnswers[component.id];
+                                    }
+                                    updateStreamGuided(index, { questionAnswers: nextAnswers });
+                                    applyGuidedMapping(index, nextAnswers);
+                                  }}
+                                />
+                              </div>
+                              {description && (
                                 <div className="text-xs text-muted-foreground">
-                                  External threat intelligence sources add context but do not replace primary telemetry.
+                                  {description}
                                 </div>
                               )}
-                            </div>
+                              {component.examples && component.examples.length > 0 && (
+                                <div className="text-xs text-muted-foreground">
+                                  <span className="font-semibold text-foreground">Common examples:</span>{' '}
+                                  {component.examples.join('; ')}
+                                </div>
+                              )}
+                              {aiSelected && (aiDecision?.reason || aiDecision?.evidence || aiDecision?.sourceUrl) && (
+                                <details className="rounded-md border border-primary/30 bg-primary/5 px-2 py-2 text-xs">
+                                  <summary
+                                    className="cursor-pointer font-semibold text-primary"
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
+                                    AI evidence
+                                  </summary>
+                                  <div className="mt-2 space-y-1 text-muted-foreground">
+                                    {aiDecision?.reason && (
+                                      <div>
+                                        <span className="font-semibold text-foreground">Reason:</span> {aiDecision.reason}
+                                      </div>
+                                    )}
+                                    {aiDecision?.evidence && (
+                                      <div>
+                                        <span className="font-semibold text-foreground">Evidence:</span> {aiDecision.evidence}
+                                      </div>
+                                    )}
+                                    {aiDecision?.sourceUrl && (
+                                      <a
+                                        href={aiDecision.sourceUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="underline underline-offset-2 text-primary"
+                                        onClick={(event) => event.stopPropagation()}
+                                      >
+                                        {aiDecision.sourceUrl}
+                                      </a>
+                                    )}
+                                  </div>
+                                </details>
+                              )}
+                              {isChecked && (
+                                <InlineRequirementHint
+                                  dcNames={[component.name]}
+                                  enrichment={enrichmentByDcId[component.id.toLowerCase()]}
+                                />
+                              )}
+                            </label>
+                          );
+                        })}
+                        {currentGroup.components.length === 0 && (
+                          <div className="text-xs text-muted-foreground">
+                            {dataComponentsFallbackReason === 'no_platform_metadata'
+                              ? 'No platform metadata found for data components.'
+                              : dataComponentsFallbackReason === 'graph_unavailable'
+                                ? 'MITRE graph is unavailable, so data components cannot be filtered.'
+                                : dataComponentsFallbackReason === 'no_platform_matches'
+                                  ? 'No data components match the selected platforms.'
+                                  : 'No data components available for the selected platforms.'}
                           </div>
-                        ))}
+                        )}
                       </div>
-                    </>
+                    </div>
                   ) : (
                     <div className="text-xs text-muted-foreground">
-                      No guided question sets match the selected platforms yet.
-                    </div>
-                  )}
-
-                  {stream.mappedDataComponents.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {stream.mappedDataComponents.map(component => (
-                        <Badge key={`${component}-${index}`} variant="secondary">
-                          {component}
-                        </Badge>
-                      ))}
+                      {dataComponentsFallbackReason === 'no_platform_metadata'
+                        ? 'No platform metadata found for data components.'
+                        : dataComponentsFallbackReason === 'graph_unavailable'
+                          ? 'MITRE graph is unavailable, so data components cannot be filtered.'
+                          : dataComponentsFallbackReason === 'no_platform_matches'
+                            ? 'No data components match the selected platforms.'
+                            : 'No data components match the selected platforms yet.'}
                     </div>
                   )}
                 </div>
               ))}
             </div>
-
-            {/* Derived Analytic Requirements Panel */}
-            {streams[0]?.mappedDataComponents.length > 0 && (
-              <AnalyticRequirementsPanel
-                selectedDCNames={streams[0].mappedDataComponents}
-                platform={dataComponentPlatform}
-              />
-            )}
-
-            <div className="flex gap-3 pt-4">
-              <Button variant="secondary" onClick={() => setStep('review')} className="flex-1">
-                Back
-              </Button>
-              <Button onClick={handleNextStreams} className="flex-1" disabled={isSubmitting}>
-                {isSubmitting ? 'Saving...' : 'Continue'}
-                {!isSubmitting && <ChevronRight className="w-4 h-4 ml-2" />}
-              </Button>
+            <div className="sticky bottom-0 z-10 -mx-6 border-t border-border bg-background/95 px-6 py-4 backdrop-blur space-y-3">
+              <div className="text-xs text-muted-foreground">Selected data components</div>
+              {streams[0]?.mappedDataComponents.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {streams[0].mappedDataComponents.map(component => (
+                    <Badge key={`selected-${component}`} variant="secondary">
+                      {formatDataComponentLabel(component)}
+                    </Badge>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground">None selected yet.</div>
+              )}
+              <div className="flex gap-3">
+                <Button variant="secondary" onClick={handleBackStreams} className="flex-1">
+                  {guidedContextIndex > 0 ? 'Previous platform' : 'Back'}
+                </Button>
+                <Button
+                  onClick={handleNextStreams}
+                  className="flex-1"
+                  disabled={isSubmitting || wizardContextOptions.length === 0}
+                >
+                  {nextLabel}
+                  <ChevronRight className="w-4 h-4 ml-2" />
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -1505,11 +2514,262 @@ export function AIMapperFlow({ initialQuery, existingProductId, mode = 'create',
     );
   }
 
+  if (step === 'guided-summary') {
+    return (
+      <>
+        {renderStepper()}
+        <div className="flex flex-col gap-6 min-h-[70vh]">
+          <div className="space-y-3">
+            <h2 className="text-2xl font-semibold text-foreground">Derived Analytic Requirements</h2>
+            <p className="text-sm text-muted-foreground">
+              This is the review step. The Data Component page is where you select what the product can generate; this page
+              expands those selections into what MITRE analytics require so you can verify coverage before mapping.
+            </p>
+            <div className="rounded-lg border border-border/60 bg-background/60 p-3 text-xs text-muted-foreground space-y-2">
+              <div>
+                <span className="font-semibold text-foreground">Expected Core Fields</span> - baseline field checklist
+                derived from MITRE data component semantics in our requirements catalog.
+              </div>
+              <div>
+                <span className="font-semibold text-foreground">Mutable Elements (STIX)</span> - tunable analytic parameters
+                that you adjust per environment (for example thresholds or allowlists).
+              </div>
+              <div>
+                <span className="font-semibold text-foreground">Log Sources to Look For</span> - common telemetry streams
+                that provide the data component when no vendor evidence is present.
+              </div>
+              <div>
+                <span className="font-semibold text-foreground">Data Source</span> - MITRE data source family tied to the
+                data component.
+              </div>
+              <div>
+                <span className="font-semibold text-foreground">Field match</span> - compares the STIX mutable-element
+                checklist to fields Gemini found in vendor logs.
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Log source names and channels shown below come from Gemini evidence when available; otherwise, they remain
+              MITRE expectations.
+            </p>
+          </div>
+
+          {selectedGuidedComponents.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {selectedGuidedComponents.map(component => (
+                <Badge key={component} variant="secondary">
+                  {formatDataComponentLabel(component)}
+                </Badge>
+              ))}
+            </div>
+          ) : (
+            <div className="text-sm text-muted-foreground">
+              No data components selected yet.
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleResearchEnrichment}
+              disabled={researchLoading || selectedGuidedComponents.length === 0}
+              title="Use Gemini web search to find vendor log source names, channels, and fields for the selected data components."
+            >
+              {researchLoading ? 'Researching online sources...' : 'Experimental: Research log sources'}
+            </Button>
+          </div>
+
+          {researchResults && (
+            <div className="flex flex-wrap items-center gap-3 pt-3">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={handleConfirmResearchResults}
+                disabled={researchConfirming || !createdProductId}
+              >
+                {researchConfirming ? 'Saving...' : 'Confirm evidence'}
+              </Button>
+              {!createdProductId && (
+                <span className="text-xs text-muted-foreground">
+                  Create the product before confirming evidence.
+                </span>
+              )}
+            </div>
+          )}
+
+          {selectedGuidedComponents.length > 0 && (
+            <div className="flex-1">
+              <AnalyticRequirementsPanel
+                selectedDCNames={selectedGuidedComponents}
+                platform={selectedPlatformsList[0]}
+                enrichmentByDcId={enrichmentByDcId}
+                suggestedPlatforms={researchSuggestedPlatforms}
+                stixPlatformsByDcId={stixPlatformsByDcId}
+                showHeader={false}
+                showMutableHelp={false}
+                fullHeight
+              />
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-2">
+            <Button variant="secondary" onClick={() => setStep('streams')} className="flex-1">
+              Back
+            </Button>
+            <Button
+              onClick={handleSaveGuidedCoverage}
+              className="flex-1"
+              disabled={isSubmitting || !hasConfiguredStreams}
+            >
+              {isSubmitting ? 'Mapping...' : 'Continue & Map'}
+            </Button>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  if (step === 'platform-review') {
+    const hasValidation = platformCheckValidation.length > 0;
+    const hasAlternatives = platformCheckAlternatives.length > 0;
+    return (
+      <div className="space-y-6">
+        {renderStepper()}
+        <Card className="bg-transparent border-none shadow-none w-full">
+          <CardHeader>
+            <CardTitle>Platform review</CardTitle>
+            <CardDescription>
+              Gemini runs a quick documentation check to validate platform coverage. This check runs once per wizard and
+              will not re-run if you change selections.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <div className="text-xs text-muted-foreground">Selected platforms</div>
+              <div className="flex flex-wrap gap-2">
+                {selectedPlatformsList.length === 0 ? (
+                  <span className="text-sm text-muted-foreground">None</span>
+                ) : (
+                  selectedPlatformsList.map(platform => (
+                    <Badge key={platform} variant="secondary">
+                      {platform}
+                    </Badge>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-border/60 bg-background/60 p-4 space-y-3">
+              <div className="text-xs font-semibold text-foreground">Platform check</div>
+              {platformCheckLoading && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Running the platform check in the background.
+                </div>
+              )}
+              {!platformCheckLoading && platformCheckResults?.note && (
+                <div className="text-xs text-muted-foreground">{platformCheckResults.note}</div>
+              )}
+              {platformCheckSummary?.supported.length ? (
+                <div className="text-xs text-emerald-600">
+                  Supported: {platformCheckSummary.supported.join(', ')}
+                </div>
+              ) : null}
+              {platformCheckSummary?.unsupported.length ? (
+                <div className="text-xs text-amber-600">
+                  Not supported by evidence: {platformCheckSummary.unsupported.join(', ')}
+                </div>
+              ) : null}
+              {platformCheckSummary?.noEvidence.length ? (
+                <div className="text-xs text-amber-600">
+                  No evidence found for: {platformCheckSummary.noEvidence.join(', ')}
+                </div>
+              ) : null}
+              {platformCheckAlternatives.length > 0 && (
+                <div className="text-xs text-muted-foreground">
+                  Alternative platform variants found: {platformCheckAlternatives.map((entry) => entry.platform).join(', ')}
+                </div>
+              )}
+              {hasValidation && (
+                <details className="text-xs text-muted-foreground">
+                  <summary className="cursor-pointer font-semibold text-foreground">Evidence details</summary>
+                  <div className="mt-2 space-y-2">
+                    {platformCheckValidation.map((entry) => (
+                      <div key={`${entry.platform}-${entry.sourceUrl || entry.reasoning}`} className="space-y-1">
+                        <div className="font-medium text-foreground">
+                          {entry.platform} — {entry.isSupported ? 'Supported' : 'Not supported'}
+                        </div>
+                        {entry.reasoning && <div>Reason: {entry.reasoning}</div>}
+                        {entry.evidence && <div>Evidence: {entry.evidence}</div>}
+                        {entry.sourceUrl && (
+                          <a
+                            href={entry.sourceUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-primary underline underline-offset-2"
+                          >
+                            {entry.sourceUrl}
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                    {platformCheckAlternatives.length > 0 && (
+                      <div className="pt-2 space-y-2">
+                        <div className="font-semibold text-foreground">Alternative platforms (outside focus)</div>
+                        {platformCheckAlternatives.map((entry) => (
+                          <div key={`${entry.platform}-${entry.sourceUrl || entry.reason}`} className="space-y-1">
+                            <div className="font-medium text-foreground">{entry.platform}</div>
+                            {entry.reason && <div>Reason: {entry.reason}</div>}
+                            {entry.evidence && <div>Evidence: {entry.evidence}</div>}
+                            {entry.sourceUrl && (
+                              <a
+                                href={entry.sourceUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-primary underline underline-offset-2"
+                              >
+                                {entry.sourceUrl}
+                              </a>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </details>
+              )}
+              {!platformCheckLoading && platformCheckHasRun && !platformCheckSummary && !hasAlternatives ? (
+                <div className="text-xs text-muted-foreground">
+                  No additional platform evidence was found for this product.
+                </div>
+              ) : null}
+            </div>
+
+            <div className="flex gap-3 pt-4">
+              <Button
+                variant="secondary"
+                onClick={() => setStep(platformCheckEnabled ? 'platform-review' : 'platforms')}
+                className="flex-1"
+              >
+                Back
+              </Button>
+              <Button onClick={() => setStep('review')} className="flex-1">
+                Continue
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   if (step === 'review') {
     return (
       <div className="space-y-6">
         {renderStepper()}
-        <Card className="bg-card/50 backdrop-blur border-border max-w-2xl mx-auto">
+        <Card className="bg-transparent border-none shadow-none w-full">
           <CardHeader>
             <CardTitle>Review details</CardTitle>
             <CardDescription>Confirm the details before running Auto Map.</CardDescription>
@@ -1580,11 +2840,105 @@ export function AIMapperFlow({ initialQuery, existingProductId, mode = 'create',
     );
   }
 
+  if (step === 'auto-results') {
+    const capabilityGroups = Array.from(
+      new Set(ssmCapabilities.map((capability) => capability.name).filter(Boolean))
+    );
+    return (
+      <>
+        {renderStepper()}
+        <Card className="bg-transparent border-none shadow-none w-full">
+          <CardHeader>
+            <CardTitle>Auto-Mapper results</CardTitle>
+            <CardDescription>
+              Review what Auto Mapper found before continuing to telemetry.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {mappingSummary ? (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="text-center p-3 rounded bg-background/40">
+                    <div className="text-xl font-semibold text-foreground">{mappingSummary.techniques}</div>
+                    <div className="text-xs text-muted-foreground">Techniques</div>
+                    <div className="text-[10px] text-muted-foreground mt-1">Unique ATT&CK techniques mapped.</div>
+                  </div>
+                  <div className="text-center p-3 rounded bg-background/40">
+                    <div className="text-xl font-semibold text-foreground">{mappingSummary.analytics}</div>
+                    <div className="text-xs text-muted-foreground">Analytics</div>
+                    <div className="text-[10px] text-muted-foreground mt-1">Detection analytics linked to those techniques.</div>
+                  </div>
+                  <div className="text-center p-3 rounded bg-background/40">
+                    <div className="text-xl font-semibold text-foreground">{mappingSummary.dataComponents}</div>
+                    <div className="text-xs text-muted-foreground">Data Components</div>
+                    <div className="text-[10px] text-muted-foreground mt-1">Distinct DCs referenced by analytics.</div>
+                  </div>
+                  <div className="text-center p-3 rounded bg-background/40">
+                    <div className="text-xl font-semibold text-foreground">
+                      {mappingSummary.sources.length > 0 ? mappingSummary.sources.length : 1}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Sources</div>
+                    <div className="text-[10px] text-muted-foreground mt-1">
+                      {mappingSummary.sources.length > 0 ? mappingSummary.sources.join(', ') : 'Custom input'}
+                    </div>
+                  </div>
+                </div>
+
+                {capabilityGroups.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-xs text-muted-foreground">Capability groups</div>
+                    <div className="flex flex-wrap gap-2">
+                      {capabilityGroups.map((group) => (
+                        <Badge key={group} variant="secondary">
+                          {group}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {techniqueList.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-xs text-muted-foreground">
+                      Mapped techniques ({techniqueList.length})
+                    </div>
+                    <ScrollArea className="max-h-[260px]">
+                      <div className="flex flex-wrap gap-2">
+                        {techniqueList.map((technique) => (
+                          <Badge key={technique.id} variant="outline">
+                            {technique.id} — {technique.name}
+                          </Badge>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-sm text-muted-foreground">
+                Auto-Mapper results are not available yet.
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-2">
+              <Button variant="secondary" onClick={() => setStep('review')} className="flex-1">
+                Back
+              </Button>
+              <Button onClick={() => setStep(autoResultsNextStep)} className="flex-1">
+                {autoResultsNextStep === 'streams' ? 'Continue to Telemetry' : 'Finish'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </>
+    );
+  }
+
   if (step === 'analyzing') {
     return (
       <>
         {renderStepper()}
-        <Card className="bg-card/50 backdrop-blur border-border max-w-2xl mx-auto">
+        <Card className="bg-transparent border-none shadow-none w-full">
           <CardContent className="py-12 text-center">
             <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-4 animate-pulse">
               <Loader2 className="w-8 h-8 text-primary animate-spin" />
@@ -1604,7 +2958,7 @@ export function AIMapperFlow({ initialQuery, existingProductId, mode = 'create',
     return (
       <div className="space-y-6">
         {renderStepper()}
-        <Card className="bg-card/50 backdrop-blur border-border max-w-4xl mx-auto">
+        <Card className="bg-transparent border-none shadow-none w-full">
           <CardHeader>
             <CardTitle>Evidence review</CardTitle>
             <CardDescription>
@@ -1746,11 +3100,11 @@ export function AIMapperFlow({ initialQuery, existingProductId, mode = 'create',
     return (
       <>
         {renderStepper()}
-        <Card className="bg-card/50 backdrop-blur border-primary/30 max-w-3xl mx-auto">
+        <Card className="bg-transparent border-none shadow-none w-full">
           <CardHeader>
             <CardTitle>Guided mapping results</CardTitle>
             <CardDescription>
-              Telemetry coverage inferred from your guided question selections.
+              Telemetry coverage inferred from your data component selections.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -1816,7 +3170,7 @@ export function AIMapperFlow({ initialQuery, existingProductId, mode = 'create',
     return (
       <>
         {renderStepper()}
-        <Card className="bg-card/50 backdrop-blur border-green-500/30 max-w-2xl mx-auto">
+        <Card className="bg-transparent border-none shadow-none w-full">
           <CardContent className="py-12 text-center">
             <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-4">
               <CheckCircle2 className="w-8 h-8 text-green-400" />

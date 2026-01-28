@@ -21,6 +21,7 @@ import {
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, like, or, sql } from "drizzle-orm";
+import { normalizePlatformList } from "../shared/platforms";
 
 export interface IStorage {
   // User management
@@ -96,13 +97,25 @@ export class PostgresStorage implements IStorage {
   }
 
   async createProduct(product: InsertProduct): Promise<Product> {
-    const result = await db.insert(products).values(product).returning();
+    const normalizedPlatforms = Array.isArray(product.platforms)
+      ? normalizePlatformList(product.platforms)
+      : [];
+    const result = await db.insert(products).values({
+      ...product,
+      platforms: normalizedPlatforms,
+    }).returning();
     return result[0];
   }
 
   async bulkCreateProducts(productList: InsertProduct[]): Promise<void> {
     if (productList.length > 0) {
-      await db.insert(products).values(productList).onConflictDoNothing();
+      const normalized = productList.map((product) => ({
+        ...product,
+        platforms: Array.isArray(product.platforms)
+          ? normalizePlatformList(product.platforms)
+          : [],
+      }));
+      await db.insert(products).values(normalized).onConflictDoNothing();
     }
   }
 
@@ -187,10 +200,13 @@ export class PostgresStorage implements IStorage {
 
   // Hybrid Selector operations
   async updateProductHybridSelector(productId: string, selectorType: string, selectorValues: string[]): Promise<Product | undefined> {
+    const normalizedSelectors = Array.isArray(selectorValues)
+      ? normalizePlatformList(selectorValues)
+      : [];
     const result = await db.update(products)
       .set({ 
         hybridSelectorType: selectorType,
-        hybridSelectorValues: selectorValues
+        hybridSelectorValues: normalizedSelectors
       })
       .where(eq(products.productId, productId))
       .returning();

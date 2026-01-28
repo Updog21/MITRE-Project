@@ -49,6 +49,9 @@ export const dataComponents = pgTable("data_components", {
   dataSourceId: text("data_source_id"),
   dataSourceName: text("data_source_name"),
   description: text("description").notNull(),
+  domains: text("domains").array().notNull().default(sql`'{}'::text[]`),
+  revoked: boolean("revoked").notNull().default(false),
+  deprecated: boolean("deprecated").notNull().default(false),
   dataCollectionMeasures: text("data_collection_measures").array().notNull().default(sql`'{}'::text[]`),
   logSources: jsonb("log_sources").notNull().default('[]'),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -170,6 +173,7 @@ export const edges = pgTable("edges", {
   type: text("type").notNull(),
   dataset: text("dataset").notNull(),
   datasetVersion: text("dataset_version"),
+  attributes: jsonb("attributes"),
 }, (table) => ({
   sourceIdx: index("edges_source_id_idx").on(table.sourceId),
   targetIdx: index("edges_target_id_idx").on(table.targetId),
@@ -316,6 +320,52 @@ export type ProductAlias = typeof productAliases.$inferSelect;
 
 export type InsertProductStream = z.infer<typeof insertProductStreamSchema>;
 export type ProductStream = typeof productStreams.$inferSelect;
+
+export interface ProductStreamEnrichmentLogSource {
+  name: string;
+  channel?: string | string[];
+  required_fields?: string[];
+  missing_fields?: string[];
+  evidence?: string;
+  notes?: string;
+  source_url?: string;
+  verified_by_ai?: boolean;
+}
+
+export interface ProductStreamEnrichmentResult {
+  data_component_id: string;
+  data_component_name?: string;
+  target_fields?: string[];
+  log_sources: ProductStreamEnrichmentLogSource[];
+}
+
+export interface ProductStreamMutableElementValue {
+  analytic_id: string;
+  field: string;
+  value: string;
+  source_url?: string;
+  note?: string;
+  updated_at?: string;
+}
+
+export interface ProductStreamMetadata {
+  fields?: string[];
+  mutable_element_values?: ProductStreamMutableElementValue[];
+  mutableElementValues?: ProductStreamMutableElementValue[];
+  ai_enrichment?: {
+    confirmed?: boolean;
+    confirmed_at?: string;
+    model?: string;
+    note?: string;
+    results?: ProductStreamEnrichmentResult[];
+    platform_suggestions?: Array<{
+      platform: string;
+      reason?: string;
+      evidence?: string;
+      source_url?: string;
+    }>;
+  };
+}
 
 export type InsertSettings = z.infer<typeof insertSettingsSchema>;
 export type Settings = typeof settings.$inferSelect;

@@ -1,0 +1,34 @@
+- [x] SAST Recon on `.env.example`
+- [x] SAST Recon on `Dockerfile`
+- [x] SAST Recon on `server/routes.ts`
+  - [ ] Investigate authentication/authorization for `/api/admin/*` routes (e.g., `ai-keys/gemini`).
+  - [ ] Investigate Input Validation for `/api/ai/*` routes (potential prompt injection sinks in services).
+  - [ ] Investigate `settingsService.set` usage for secure key storage.
+- [x] SAST Recon on `server/services/settings-service.ts`
+- [x] SAST Recon on `server/services/validation-service.ts`
+- [x] SAST Recon on `server/services/gemini-mapping-service.ts`
+- [x] SAST Recon on `server/services/gemini-research-service.ts`
+- [x] SAST Recon on `server/index.ts`
+- [x] SAST Recon on `server/services/admin-service.ts`
+- [x] SAST Recon on `client/src/pages/AdminTasks.tsx`
+- [x] SAST Recon on `client/src/components/AIMapperFlow.tsx`
+- [x] SAST Recon on `client/src/components/ProductView.tsx`
+- [x] SAST Recon on `server/mitre-stix/knowledge-graph.ts`
+- [ ] SAST Recon on `shared/schema.ts` (Verify settings table structure)
+- [ ] SAST Recon on `server/services/coverage-service.ts` (Check SQLi)
+- [ ] SAST Recon on `server/services/gap-analysis-service.ts` (Check SQLi)
+- [ ] SAST Recon on `client/src/components/AnalyticRequirementsPanel.tsx`
+- [ ] SAST Recon on `client/src/components/DetectionStrategyView.tsx`
+- [ ] SAST Recon on `client/src/components/HybridSelector.tsx`
+- [ ] SAST Recon on `client/src/pages/Dashboard.tsx`
+- [ ] SAST Recon on `script/build.ts`
+- [ ] SAST Recon on `server/auto-mapper/utils.ts`
+- [ ] SAST Recon on `server/auto-mapper/wizard-integration.ts`
+- [ ] SAST Recon on `server/services/index.ts`
+- [ ] SAST Recon on `shared/schemas/ssm.ts`
+- [ ] SAST Recon on `client/src/lib/dc-analytic-requirements.ts`
+- [ ] SAST Recon on `client/src/lib/mitreData.ts`
+- [ ] SAST Recon on `client/src/lib/products.ts`
+- [ ] SAST Recon on `client/src/lib/ssm-hybrid.ts`
+- [ ] SAST Recon on `client/src/lib/wizard-questions.ts`
+- [ ] Conduct the final review of all findings as per your **Minimizing False Positives** operating principle and generate the final report.

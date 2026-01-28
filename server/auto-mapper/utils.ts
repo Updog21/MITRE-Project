@@ -1,3 +1,5 @@
+import { platformMatchesAny } from '../../shared/platforms';
+
 export function isRuleRelevantToPlatform(
   rulePlatforms: string[] | undefined,
   targetPlatform: string
@@ -5,7 +7,7 @@ export function isRuleRelevantToPlatform(
   if (!rulePlatforms || rulePlatforms.length === 0) {
     return true;
   }
-  return rulePlatforms.some(platform => platform === targetPlatform);
+  return platformMatchesAny(rulePlatforms, [targetPlatform]);
 }
 
 export function slugifyPlatform(platform: string): string {

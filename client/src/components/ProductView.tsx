@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -39,6 +39,8 @@ import { Button } from '@/components/ui/button';
 import { Filter } from 'lucide-react';
 import { useDeleteProduct } from '@/hooks/useProducts';
 import { useToast } from '@/hooks/use-toast';
+import { normalizePlatformList, platformMatchesAny } from '@shared/platforms';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 interface ProductViewProps {
   product: Asset & { productId?: string; source?: string };
@@ -49,76 +51,58 @@ const PLATFORM_ICON_MAP: Record<string, React.ReactNode> = {
   'Windows': <Monitor className="w-4 h-4" />,
   'macOS': <Monitor className="w-4 h-4" />,
   'Linux': <Terminal className="w-4 h-4" />,
+  'Android': <Monitor className="w-4 h-4" />,
+  'iOS': <Monitor className="w-4 h-4" />,
+  'None': <Info className="w-4 h-4" />,
   'PRE': <Shield className="w-4 h-4" />,
   'Office Suite': <Database className="w-4 h-4" />,
   'Office 365': <Database className="w-4 h-4" />,
   'Identity Provider': <Shield className="w-4 h-4" />,
+  'Google Workspace': <Database className="w-4 h-4" />,
+  'Azure AD': <Shield className="w-4 h-4" />,
+  'AWS': <Cloud className="w-4 h-4" />,
+  'Azure': <Cloud className="w-4 h-4" />,
+  'GCP': <Cloud className="w-4 h-4" />,
   'SaaS': <Globe className="w-4 h-4" />,
   'IaaS': <Cloud className="w-4 h-4" />,
-  'Network': <Network className="w-4 h-4" />,
   'Network Devices': <Network className="w-4 h-4" />,
   'Containers': <Box className="w-4 h-4" />,
   'ESXi': <Server className="w-4 h-4" />,
-  'Azure AD': <Cloud className="w-4 h-4" />,
 };
 
 const PLATFORM_DISPLAY_NAMES: Record<string, string> = {
   'Windows': 'Windows',
   'Linux': 'Linux',
   'macOS': 'macOS',
+  'Android': 'Android',
+  'iOS': 'iOS',
+  'None': 'None',
+  'PRE': 'PRE',
   'Identity Provider': 'Identity Provider',
-  'IaaS': 'Cloud Infrastructure',
-  'SaaS': 'SaaS Application',
-  'Containers': 'Container / Kubernetes',
-  'Network': 'Network Devices',
-  'Office 365': 'Office Suite',
-  'ESXi': 'ESXi / VMware',
+  'IaaS': 'IaaS',
+  'SaaS': 'SaaS',
+  'Office 365': 'Office 365',
+  'Office Suite': 'Office Suite',
+  'Containers': 'Containers',
+  'Network Devices': 'Network Devices',
+  'ESXi': 'ESXi',
+  'Azure AD': 'Identity Provider',
+  'Google Workspace': 'Google Workspace',
+  'AWS': 'AWS',
+  'Azure': 'Azure',
+  'GCP': 'GCP',
 };
 
 function getPlatformIcon(platform: string) {
-  return PLATFORM_ICON_MAP[platform] || <Monitor className="w-4 h-4" />;
+  const canonical = normalizePlatformList([platform])[0] || platform;
+  return PLATFORM_ICON_MAP[canonical] || <Monitor className="w-4 h-4" />;
 }
 
 function getPlatformDisplayName(platform: string) {
-  return PLATFORM_DISPLAY_NAMES[platform] || platform;
+  const canonical = normalizePlatformList([platform])[0] || platform;
+  return PLATFORM_DISPLAY_NAMES[canonical] || canonical;
 }
 
-const PLATFORM_ALIASES: Record<string, string[]> = {
-  'Windows': ['Windows'],
-  'Windows Endpoint': ['Windows', 'Windows Endpoint'],
-  'Linux': ['Linux'],
-  'Linux Server/Endpoint': ['Linux', 'Linux Server', 'Linux Endpoint'],
-  'macOS': ['macOS'],
-  'macOS Endpoint': ['macOS', 'macOS Endpoint'],
-  'Network': ['Network', 'Network Devices', 'Network Security Appliances', 'Network Infrastructure'],
-  'Network Devices': ['Network Devices', 'Network', 'Network Security Appliances', 'Network Infrastructure'],
-  'IaaS': ['IaaS', 'Azure AD', 'AWS', 'GCP', 'Google Workspace'],
-  'Cloud Infrastructure': ['IaaS', 'Cloud', 'AWS', 'Azure', 'GCP', 'Google Workspace'],
-  'SaaS': ['SaaS', 'Office 365', 'Google Workspace', 'Microsoft 365'],
-  'SaaS Application': ['SaaS', 'Office 365', 'Google Workspace', 'Microsoft 365'],
-  'Containers': ['Containers', 'Kubernetes'],
-  'Container/Kubernetes': ['Containers', 'Container', 'Kubernetes'],
-  'Identity Provider': ['Identity Provider', 'Azure AD', 'Okta', 'Office 365'],
-  'Office 365': ['Office 365', 'SaaS', 'Microsoft 365'],
-  'Office Suite': ['Office 365', 'Microsoft 365', 'Office Suite', 'SaaS'],
-  'ESXi': ['ESXi', 'VMware'],
-  'ESXi / VMware': ['ESXi', 'VMware'],
-};
-
-function platformMatchesAny(analyticPlatforms: string[], selectedPlatforms: string[]): boolean {
-  for (const selected of selectedPlatforms) {
-    const aliases = PLATFORM_ALIASES[selected] || [selected];
-    for (const alias of aliases) {
-      if (analyticPlatforms.some(ap => 
-        ap.toLowerCase().includes(alias.toLowerCase()) || 
-        alias.toLowerCase().includes(ap.toLowerCase())
-      )) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
 
 function normalizeTechniqueId(value: string): string {
   const match = value.toUpperCase().match(/T\d{4}(?:\.\d{3})?/);
@@ -129,12 +113,23 @@ interface LogSourceRow {
   dataComponentId: string;
   dataComponentName: string;
   logSourceName: string;
-  channel: string;
+  channel?: string[];
+}
+
+interface MutableElementValueEntry {
+  analyticId: string;
+  field: string;
+  value: string;
+  sourceUrl?: string;
+  note?: string;
 }
 
 interface MutableElementRow {
   field: string;
   description: string;
+  value?: string;
+  sourceUrl?: string;
+  note?: string;
 }
 
 interface CoveragePathRow {
@@ -153,32 +148,52 @@ interface CoverageRow {
 }
 
 function getPlatformPrefixes(platform: string): string[] {
-  switch (platform) {
+  const canonical = normalizePlatformList([platform])[0] || platform;
+  switch (canonical) {
     case 'Windows': return ['WinEventLog:', 'windows:'];
     case 'Linux': return ['auditd:', 'linux:', 'ebpf:'];
     case 'macOS': return ['macos:'];
     case 'ESXi': return ['esxi:'];
-    case 'Azure AD': return ['azuread:', 'AWS:', 'azure:'];
+    case 'Identity Provider': return ['azuread:', 'okta:', 'idp:'];
+    case 'Azure AD': return ['azuread:', 'okta:', 'idp:'];
+    case 'IaaS': return ['aws:', 'azure:', 'gcp:', 'cloudtrail:', 'cloud:'];
+    case 'AWS': return ['aws:', 'cloudtrail:'];
+    case 'Azure': return ['azure:', 'azuread:', 'activity:'];
+    case 'GCP': return ['gcp:', 'gcloud:'];
+    case 'SaaS': return ['saas:', 'office365:', 'm365:', 'gsuite:', 'workspace:'];
+    case 'Office 365': return ['office365:', 'm365:'];
+    case 'Office Suite': return ['office365:', 'm365:', 'workspace:', 'gsuite:'];
+    case 'Google Workspace': return ['workspace:', 'gsuite:', 'googleworkspace:'];
+    case 'Network Devices': return ['zeek:', 'suricata:', 'network:', 'firewall:', 'proxy:'];
+    case 'Containers': return ['kubernetes:', 'container:', 'docker:'];
+    case 'Android': return ['android:'];
+    case 'iOS': return ['ios:'];
     default: return [];
   }
 }
 
-function DataComponentDetail({ 
-  dc, 
-  platform, 
-  onClose 
-}: { 
-  dc: DataComponentRef; 
-  platform: string; 
+function DataComponentDetail({
+  dc,
+  platform,
+  onClose,
+  vendorEvidence,
+}: {
+  dc: DataComponentRef;
+  platform: string;
   onClose: () => void;
+  vendorEvidence?: AiEvidenceEntry;
 }) {
   const prefixes = getPlatformPrefixes(platform);
+  const formatVendorChannel = (value?: string[] | null) => {
+    if (!value || value.length === 0) return '-';
+    return value.join(', ');
+  };
   
   const filteredLogSources = dc.logSources?.filter(ls => 
     prefixes.some(prefix => ls.name.toLowerCase().startsWith(prefix.toLowerCase()))
   ) || [];
   
-  const platformMeasure = dc.dataCollectionMeasures?.find(m => m.platform === platform);
+  const platformMeasure = dc.dataCollectionMeasures?.find(m => platformMatchesAny([m.platform], [platform]));
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
@@ -251,6 +266,50 @@ function DataComponentDetail({
             )}
           </div>
 
+          {vendorEvidence && vendorEvidence.logSources.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                <Database className="w-4 h-4 text-primary" />
+                Vendor Log Sources
+              </h3>
+              <div className="border border-border rounded-md overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="text-left px-4 py-2 font-medium text-muted-foreground">Name</th>
+                      <th className="text-left px-4 py-2 font-medium text-muted-foreground">Channel</th>
+                      <th className="text-left px-4 py-2 font-medium text-muted-foreground">Notes</th>
+                      <th className="text-left px-4 py-2 font-medium text-muted-foreground">Source</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {vendorEvidence.logSources.map((source, idx) => (
+                      <tr key={`${dc.id}-vendor-${idx}`}>
+                        <td className="px-4 py-2 font-mono text-foreground">{source.name}</td>
+                        <td className="px-4 py-2 text-muted-foreground">{formatVendorChannel(source.channel)}</td>
+                        <td className="px-4 py-2 text-muted-foreground">{source.notes || '-'}</td>
+                        <td className="px-4 py-2">
+                          {source.sourceUrl ? (
+                            <a
+                              href={source.sourceUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center rounded-md border border-border/60 bg-background px-2 py-0.5 text-[10px] font-medium text-foreground hover:bg-muted"
+                            >
+                              Reference
+                            </a>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           <div className="pt-4 border-t border-border">
             <a
               href={`https://attack.mitre.org/datasources/${dc.dataSource.replace(/\s+/g, '%20')}/`}
@@ -282,6 +341,25 @@ interface ProductAlias {
   createdAt: string;
 }
 
+interface ProductStreamRow {
+  id: number;
+  name: string;
+  metadata?: Record<string, unknown> | null;
+}
+
+interface AiEvidenceLogSource {
+  name: string;
+  channel?: string[];
+  notes?: string;
+  sourceUrl?: string;
+}
+
+interface AiEvidenceEntry {
+  dataComponentId: string;
+  dataComponentName: string;
+  logSources: AiEvidenceLogSource[];
+}
+
 export function ProductView({ product, onBack }: ProductViewProps) {
   const [, setLocation] = useLocation();
   const [expandedStrategies, setExpandedStrategies] = useState<Set<string>>(new Set());
@@ -306,12 +384,12 @@ export function ProductView({ product, onBack }: ProductViewProps) {
   const deleteProductMutation = useDeleteProduct();
   const { toast } = useToast();
   
-  const platform = product.platforms[0];
+  const platform = normalizePlatformList(product.platforms || [])[0] || product.platforms[0];
   const productTitle = `${product.vendor} ${product.productName}`.trim();
-  const productKey = product.productId ?? product.id;
+  const productKey = String(product.productId ?? product.id);
   
   const { data: productData, refetch: refetchProduct } = useQuery<ProductData>({
-    queryKey: ['product', product.id],
+    queryKey: ['product', productKey],
     queryFn: async () => {
       const res = await fetch(`/api/products/${productKey}`);
       if (!res.ok) throw new Error('Failed to fetch product');
@@ -328,6 +406,19 @@ export function ProductView({ product, onBack }: ProductViewProps) {
       if (!res.ok) throw new Error('Failed to fetch product aliases');
       return res.json();
     },
+    staleTime: 30 * 1000,
+  });
+
+  const productStreamId = product.productId || productData?.productId || productKey;
+  const { data: productStreams = [] } = useQuery<ProductStreamRow[]>({
+    queryKey: ['product-streams', productStreamId],
+    queryFn: async () => {
+      const res = await fetch(`/api/products/${encodeURIComponent(String(productStreamId))}/streams`);
+      if (!res.ok) throw new Error('Failed to fetch product streams');
+      const payload = await res.json();
+      return Array.isArray(payload?.streams) ? payload.streams : [];
+    },
+    enabled: Boolean(productStreamId),
     staleTime: 30 * 1000,
   });
 
@@ -382,6 +473,205 @@ export function ProductView({ product, onBack }: ProductViewProps) {
     }
     return null;
   };
+
+  const normalizeMetadata = (value: unknown): Record<string, unknown> => {
+    if (!value) return {};
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          return parsed as Record<string, unknown>;
+        }
+      } catch {
+        return {};
+      }
+      return {};
+    }
+    if (typeof value === 'object' && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+    return {};
+  };
+
+  const verifiedEvidence = useMemo(() => {
+    const map = new Map<string, AiEvidenceEntry>();
+
+    const normalizeChannelList = (value: unknown): string[] => {
+      const normalizeEntry = (entry: unknown) => {
+        if (typeof entry === 'string') return entry.trim();
+        if (typeof entry === 'number' && Number.isFinite(entry)) return String(entry);
+        return '';
+      };
+      if (Array.isArray(value)) {
+        return value
+          .map((item) => normalizeEntry(item))
+          .filter((item) => item.length > 0);
+      }
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (!trimmed) return [];
+        return trimmed.split(',').map((item) => item.trim()).filter(Boolean);
+      }
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return [String(value)];
+      }
+      return [];
+    };
+
+    const normalizeLogSources = (sources: any[]): AiEvidenceLogSource[] => {
+      if (!Array.isArray(sources)) return [];
+      return sources
+        .map((source) => {
+          const name = typeof source?.name === 'string' ? source.name.trim() : '';
+          if (!name) return null;
+          const channel = normalizeChannelList(source?.channel);
+          const notes = typeof source?.notes === 'string'
+            ? source.notes
+            : typeof source?.note === 'string' ? source.note : undefined;
+          return {
+            name,
+            channel: channel.length > 0 ? channel : undefined,
+            notes,
+            sourceUrl: typeof source?.source_url === 'string'
+              ? source.source_url
+              : typeof source?.sourceUrl === 'string' ? source.sourceUrl : undefined,
+          } as AiEvidenceLogSource;
+        })
+        .filter(Boolean) as AiEvidenceLogSource[];
+    };
+
+    const mergeLogSources = (existingSources: AiEvidenceLogSource[], incomingSources: AiEvidenceLogSource[]) => {
+      const byKey = new Map<string, AiEvidenceLogSource>();
+      const keyFor = (source: AiEvidenceLogSource) =>
+        `${source.name.toLowerCase()}|${(source.sourceUrl || '').toLowerCase()}`;
+
+      const addSource = (source: AiEvidenceLogSource) => {
+        const key = keyFor(source);
+        const existing = byKey.get(key);
+        if (!existing) {
+          byKey.set(key, { ...source });
+          return;
+        }
+        const existingChannels = existing.channel || [];
+        const incomingChannels = source.channel || [];
+        const mergedChannels = Array.from(new Set([...existingChannels, ...incomingChannels]));
+        existing.channel = mergedChannels.length > 0 ? mergedChannels : undefined;
+        if (!existing.notes && source.notes) {
+          existing.notes = source.notes;
+        }
+        if (!existing.sourceUrl && source.sourceUrl) {
+          existing.sourceUrl = source.sourceUrl;
+        }
+      };
+
+      existingSources.forEach(addSource);
+      incomingSources.forEach(addSource);
+      return Array.from(byKey.values());
+    };
+
+    productStreams.forEach((stream) => {
+      const metadata = normalizeMetadata(stream?.metadata);
+      const enrichment = (metadata as any).ai_enrichment || (metadata as any).aiEnrichment;
+      if (!enrichment || typeof enrichment !== 'object') return;
+      const confirmed = (enrichment as any).confirmed === true
+        || Boolean((enrichment as any).confirmed_at || (enrichment as any).confirmedAt);
+      if (!confirmed) return;
+      const results = Array.isArray((enrichment as any).results) ? (enrichment as any).results : [];
+      results.forEach((entry: any) => {
+        const dcId = typeof entry?.data_component_id === 'string'
+          ? entry.data_component_id
+          : typeof entry?.dataComponentId === 'string'
+            ? entry.dataComponentId
+            : typeof entry?.dcId === 'string'
+              ? entry.dcId
+              : entry?.dc_id;
+        if (!dcId) return;
+        const dcName = typeof entry?.data_component_name === 'string'
+          ? entry.data_component_name
+          : typeof entry?.dataComponentName === 'string'
+            ? entry.dataComponentName
+            : typeof entry?.dcName === 'string'
+              ? entry.dcName
+              : entry?.dc_name || dcId;
+        const logSources = normalizeLogSources(
+          Array.isArray(entry?.log_sources) ? entry.log_sources : entry?.logSources
+        );
+        if (logSources.length === 0) return;
+
+        const key = String(dcId).toLowerCase();
+        const existing = map.get(key);
+        if (!existing) {
+          map.set(key, {
+            dataComponentId: String(dcId),
+            dataComponentName: String(dcName || dcId),
+            logSources,
+          });
+          return;
+        }
+
+        if (!existing.dataComponentName && dcName) {
+          existing.dataComponentName = String(dcName);
+        }
+        existing.logSources = mergeLogSources(existing.logSources, logSources);
+      });
+    });
+
+    return Array.from(map.values());
+  }, [productStreams]);
+
+  const verifiedEvidenceByDcId = useMemo(() => {
+    const map = new Map<string, AiEvidenceEntry>();
+    verifiedEvidence.forEach((entry) => {
+      map.set(entry.dataComponentId.toLowerCase(), entry);
+    });
+    return map;
+  }, [verifiedEvidence]);
+
+  const verifiedEvidenceByName = useMemo(() => {
+    const map = new Map<string, AiEvidenceEntry>();
+    verifiedEvidence.forEach((entry) => {
+      if (!entry.dataComponentName) return;
+      map.set(entry.dataComponentName.toLowerCase(), entry);
+    });
+    return map;
+  }, [verifiedEvidence]);
+
+  const mutableElementValuesByAnalytic = useMemo(() => {
+    const map = new Map<string, Map<string, MutableElementValueEntry>>();
+    productStreams.forEach((stream) => {
+      const metadata = normalizeMetadata(stream?.metadata);
+      const valuesRaw = (metadata as any).mutable_element_values || (metadata as any).mutableElementValues;
+      if (!Array.isArray(valuesRaw)) return;
+      valuesRaw.forEach((entry: any) => {
+        const analyticId = typeof entry?.analytic_id === 'string'
+          ? entry.analytic_id
+          : typeof entry?.analyticId === 'string' ? entry.analyticId : '';
+        const field = typeof entry?.field === 'string' ? entry.field : '';
+        const valueRaw = entry?.value;
+        if (!analyticId || !field || valueRaw === undefined || valueRaw === null) return;
+        const value = typeof valueRaw === 'string' ? valueRaw : String(valueRaw);
+        const sourceUrl = typeof entry?.source_url === 'string'
+          ? entry.source_url
+          : typeof entry?.sourceUrl === 'string' ? entry.sourceUrl : undefined;
+        const note = typeof entry?.note === 'string' ? entry.note : undefined;
+        if (!map.has(analyticId)) {
+          map.set(analyticId, new Map());
+        }
+        const fieldKey = field.toLowerCase();
+        const existing = map.get(analyticId)!.get(fieldKey);
+        if (!existing || !existing.value) {
+          map.get(analyticId)!.set(fieldKey, {
+            analyticId,
+            field,
+            value,
+            sourceUrl,
+            note,
+          });
+        }
+      });
+    });
+    return map;
+  }, [productStreams]);
 
   const openEvidenceDialog = (techniqueId: string, techniqueName: string) => {
     const metadata = ssmMetadataByTechnique.get(techniqueId) || {};
@@ -470,7 +760,7 @@ export function ProductView({ product, onBack }: ProductViewProps) {
       )
     );
 
-    queryClient.invalidateQueries({ queryKey: ['product-ssm', productData?.id ?? 0] });
+    queryClient.invalidateQueries({ queryKey: ['product-ssm', ssmProductId] });
     setIsEvidenceDialogOpen(false);
   };
 
@@ -483,9 +773,11 @@ export function ProductView({ product, onBack }: ProductViewProps) {
   }, [ssmCapabilities]);
 
   const allPlatforms = useMemo(() => {
-    const platforms = new Set<string>(product.platforms || []);
-    (productData?.hybridSelectorValues || []).forEach(p => platforms.add(p));
-    return Array.from(platforms);
+    const combined = [
+      ...(product.platforms || []),
+      ...(productData?.hybridSelectorValues || []),
+    ];
+    return normalizePlatformList(combined);
   }, [product.platforms, productData?.hybridSelectorValues]);
 
   const { data: ssmStixMapping } = useQuery<{
@@ -641,10 +933,17 @@ export function ProductView({ product, onBack }: ProductViewProps) {
     return map;
   }, [coverageData?.coverage, visibilityCoverageData?.coverage]);
 
+  const [remoteTacticMap, setRemoteTacticMap] = useState<Map<string, string[]>>(
+    () => new Map()
+  );
+  const pendingTacticRequests = useRef(new Set<string>());
+
   const resolveTacticName = useMemo(() => {
     return (techniqueId: string, tactics?: string[]) => {
       if (Array.isArray(tactics) && tactics.length > 0) return tactics[0];
       const normalized = normalizeTechniqueId(techniqueId);
+      const remote = remoteTacticMap.get(normalized);
+      if (remote && remote.length > 0) return remote[0];
       const direct = coverageTacticMap.get(normalized)
         || techniqueIndex.get(normalized)?.tactic
         || techniqueTacticMap.get(normalized);
@@ -658,7 +957,7 @@ export function ProductView({ product, onBack }: ProductViewProps) {
       }
       return 'Unknown';
     };
-  }, [coverageTacticMap, techniqueIndex, techniqueTacticMap]);
+  }, [coverageTacticMap, techniqueIndex, techniqueTacticMap, remoteTacticMap]);
 
   const resolveTechniqueDescription = useMemo(() => {
     return (techniqueId: string, description?: string) => {
@@ -686,7 +985,7 @@ export function ProductView({ product, onBack }: ProductViewProps) {
   });
 
   const autoMapping = useAutoMappingWithAutoRun(
-    product.id, 
+    productKey,
     platform,
     allPlatforms.length > 0 ? allPlatforms : null
   );
@@ -701,10 +1000,10 @@ export function ProductView({ product, onBack }: ProductViewProps) {
     return getHybridStrategies(
       ssmCapabilities,
       ssmStixMapping?.detectionStrategies,
-      getDetectionStrategiesForProduct(product.id),
+      getDetectionStrategiesForProduct(productKey),
       allPlatforms
     );
-  }, [ssmCapabilities, ssmStixMapping?.detectionStrategies, product.id, allPlatforms]);
+  }, [ssmCapabilities, ssmStixMapping?.detectionStrategies, productKey, allPlatforms]);
   const analyticById = useMemo(() => {
     const map = new Map<string, AnalyticItem>();
     strategies.forEach(strategy => {
@@ -716,6 +1015,134 @@ export function ProductView({ product, onBack }: ProductViewProps) {
     });
     return map;
   }, [strategies]);
+
+  const normalizeChannelList = (value: unknown): string[] | undefined => {
+    const normalizeEntry = (entry: unknown) => {
+      if (typeof entry === 'string') return entry.trim();
+      if (typeof entry === 'number' && Number.isFinite(entry)) return String(entry);
+      return '';
+    };
+    if (Array.isArray(value)) {
+      const cleaned = value
+        .map((item) => normalizeEntry(item))
+        .filter((item) => item.length > 0);
+      return cleaned.length > 0 ? cleaned : undefined;
+    }
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return undefined;
+      const parts = trimmed.split(',').map((item) => item.trim()).filter(Boolean);
+      return parts.length > 0 ? parts : undefined;
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return [String(value)];
+    }
+    return undefined;
+  };
+
+  const formatChannel = (value?: string[] | null) => {
+    if (!value || value.length === 0) return '-';
+    return value.join(', ');
+  };
+
+  const resolveEvidenceForKey = (key: string): AiEvidenceEntry | null => {
+    if (!key) return null;
+    const normalized = key.toLowerCase();
+    return verifiedEvidenceByDcId.get(normalized)
+      || verifiedEvidenceByName.get(normalized)
+      || null;
+  };
+
+  const getEnablementNotes = (dataComponentIds?: string[], rows?: LogSourceRow[]) => {
+    if (verifiedEvidenceByDcId.size === 0) return [];
+    const targets = new Set<string>();
+    if (Array.isArray(dataComponentIds)) {
+      dataComponentIds.forEach((id) => {
+        if (id) targets.add(id);
+      });
+    }
+    if (Array.isArray(rows)) {
+      rows.forEach((row) => {
+        if (row.dataComponentId) targets.add(row.dataComponentId);
+        if (row.dataComponentName) targets.add(row.dataComponentName);
+      });
+    }
+    const notes: Array<{ dataComponentName: string; logSourceName: string; note: string }> = [];
+    const seen = new Set<string>();
+    targets.forEach((target) => {
+      const evidence = resolveEvidenceForKey(target);
+      if (!evidence) return;
+      const dcName = evidence.dataComponentName
+        || dataComponents[evidence.dataComponentId]?.name
+        || target;
+      evidence.logSources.forEach((source) => {
+        if (!source.notes) return;
+        const key = `${evidence.dataComponentId.toLowerCase()}|${source.name.toLowerCase()}|${source.notes}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        notes.push({
+          dataComponentName: dcName,
+          logSourceName: source.name,
+          note: source.notes,
+        });
+      });
+    });
+    return notes;
+  };
+
+  const mergeVendorLogSources = (rows: LogSourceRow[], dataComponentIds?: string[]) => {
+    const rowsByKey = new Map<string, LogSourceRow>();
+    const addRow = (row: LogSourceRow) => {
+      const key = `${row.dataComponentId.toLowerCase()}|${row.logSourceName.toLowerCase()}`;
+      const existing = rowsByKey.get(key);
+      if (!existing) {
+        rowsByKey.set(key, row);
+        return;
+      }
+      const existingChannels = existing.channel || [];
+      const incomingChannels = row.channel || [];
+      const merged = Array.from(new Set([...existingChannels, ...incomingChannels]));
+      existing.channel = merged.length > 0 ? merged : undefined;
+    };
+
+    rows.forEach(addRow);
+    if (verifiedEvidenceByDcId.size === 0) {
+      return Array.from(rowsByKey.values());
+    }
+
+    const targets = new Set<string>();
+    if (Array.isArray(dataComponentIds)) {
+      dataComponentIds.forEach((dcId) => {
+        if (dcId) targets.add(dcId);
+      });
+    }
+    rows.forEach((row) => {
+      if (row.dataComponentId) targets.add(row.dataComponentId);
+      if (row.dataComponentName) targets.add(row.dataComponentName);
+    });
+    if (targets.size === 0) {
+      return Array.from(rowsByKey.values());
+    }
+
+    targets.forEach((dcKey) => {
+      const evidence = resolveEvidenceForKey(dcKey);
+      if (!evidence) return;
+      const dcName = evidence.dataComponentName
+        || dataComponents[evidence.dataComponentId]?.name
+        || dcKey;
+      evidence.logSources.forEach((source) => {
+        if (!source.name) return;
+        addRow({
+          dataComponentId: evidence.dataComponentId || dcKey,
+          dataComponentName: dcName,
+          logSourceName: source.name,
+          channel: normalizeChannelList(source.channel),
+        });
+      });
+    });
+
+    return Array.from(rowsByKey.values());
+  };
 
   const getLogSourcesForAnalytic = (analytic: AnalyticItem, targetPlatforms?: string[]): LogSourceRow[] => {
     const rows: LogSourceRow[] = [];
@@ -735,38 +1162,44 @@ export function ProductView({ product, onBack }: ProductViewProps) {
             dataComponentId: dc.id,
             dataComponentName: dc.name,
             logSourceName: ls.name,
-            channel: ls.channel,
+            channel: normalizeChannelList(ls.channel),
           });
         });
       } else {
-        const platformMappings = dc.platforms.filter(p => platformsToUse.includes(p.platform));
+        const platformMappings = dc.platforms.filter(p => platformMatchesAny([p.platform], platformsToUse));
         platformMappings.forEach(mapping => {
           rows.push({
             dataComponentId: dc.id,
             dataComponentName: dc.name,
             logSourceName: mapping.logSourceName,
-            channel: mapping.logChannel || '-',
+            channel: normalizeChannelList(mapping.logChannel),
           });
         });
       }
     });
 
-    return rows;
+    return mergeVendorLogSources(rows, analytic.dataComponents);
   };
 
   const getLogSourcesForStixAnalytic = (analytic: StixAnalytic): LogSourceRow[] => {
-    if (!analytic || !Array.isArray(analytic.logSources)) {
+    if (!analytic) {
       return [];
     }
 
-    return analytic.logSources
+    const rows: LogSourceRow[] = [];
+    const stixLogSources = Array.isArray(analytic.logSources) ? analytic.logSources : [];
+
+    stixLogSources
       .filter((ls) => ls && ls.dataComponentId && ls.dataComponentName && ls.name)
-      .map(ls => ({
-        dataComponentId: ls.dataComponentId,
-        dataComponentName: ls.dataComponentName,
-        logSourceName: ls.name,
-        channel: ls.channel || '-',
-      }));
+      .forEach((ls) => {
+        rows.push({
+          dataComponentId: ls.dataComponentId,
+          dataComponentName: ls.dataComponentName,
+          logSourceName: ls.name,
+          channel: normalizeChannelList(ls.channel),
+        });
+      });
+    return mergeVendorLogSources(rows, analytic.dataComponents);
   };
 
   const isStixAnalytic = (analytic: AnalyticItem | StixAnalytic): analytic is StixAnalytic => {
@@ -801,12 +1234,20 @@ export function ProductView({ product, onBack }: ProductViewProps) {
       return [];
     }
 
+    const valuesForAnalytic = mutableElementValuesByAnalytic.get(analytic.id);
+
     return analytic.mutableElements
       .filter((me) => me && me.field)
-      .map(me => ({
-        field: me.field,
-        description: me.description,
-      }));
+      .map(me => {
+        const valueEntry = valuesForAnalytic?.get(me.field.toLowerCase());
+        return {
+          field: me.field,
+          description: me.description,
+          value: valueEntry?.value,
+          sourceUrl: valueEntry?.sourceUrl,
+          note: valueEntry?.note,
+        };
+      });
   };
 
   const getLogSourcesFromMetadata = (metadata: Record<string, unknown> | null): LogSourceRow[] => {
@@ -820,7 +1261,7 @@ export function ProductView({ product, onBack }: ProductViewProps) {
             dataComponentId: 'custom',
             dataComponentName: 'Custom Log Source',
             logSourceName: entry,
-            channel: '-',
+            channel: undefined,
           };
         }
         if (entry && typeof entry === 'object') {
@@ -829,7 +1270,7 @@ export function ProductView({ product, onBack }: ProductViewProps) {
             dataComponentId: 'custom',
             dataComponentName: obj.dataComponent || 'Custom Log Source',
             logSourceName: obj.name || 'Log Source',
-            channel: obj.channel || '-',
+            channel: normalizeChannelList(obj.channel),
           };
         }
         return null;
@@ -1253,6 +1694,94 @@ export function ProductView({ product, onBack }: ProductViewProps) {
     });
   }, [autoMapping.enrichedMapping?.detectionStrategies, allPlatforms, sourceFilters, techniqueSources, getSourcesForStrategy]);
 
+  const tacticCandidateIds = useMemo(() => {
+    const ids = new Set<string>();
+    const add = (id?: string) => {
+      if (!id) return;
+      const normalized = normalizeTechniqueId(id);
+      if (!/^T\d{4}(?:\.\d{3})?$/.test(normalized)) return;
+      ids.add(normalized);
+    };
+
+    detectionTechniques.forEach((tech) => add(tech.id));
+    visibilityTechniques.forEach((tech) => add(tech.id));
+    filteredStrategies.forEach((strategy) => strategy.techniques.forEach(add));
+    filteredCommunityStrategies.forEach((strategy) => strategy.techniques.forEach(add));
+    autoMapping.enrichedMapping?.techniqueIds?.forEach(add);
+
+    return Array.from(ids);
+  }, [
+    detectionTechniques,
+    visibilityTechniques,
+    filteredStrategies,
+    filteredCommunityStrategies,
+    autoMapping.enrichedMapping?.techniqueIds,
+  ]);
+
+  const missingTacticIds = useMemo(() => {
+    const missing: string[] = [];
+    const hasKnownTactic = (id: string) => {
+      const direct = coverageTacticMap.get(id)
+        || techniqueIndex.get(id)?.tactic
+        || techniqueTacticMap.get(id)
+        || remoteTacticMap.get(id)?.[0];
+      if (direct) return true;
+      if (!id.includes('.')) return false;
+      const parentId = id.split('.')[0];
+      return Boolean(
+        coverageTacticMap.get(parentId)
+          || techniqueIndex.get(parentId)?.tactic
+          || techniqueTacticMap.get(parentId)
+          || remoteTacticMap.get(parentId)?.[0]
+      );
+    };
+
+    tacticCandidateIds.forEach((id) => {
+      if (!remoteTacticMap.has(id) && !hasKnownTactic(id)) {
+        missing.push(id);
+      }
+    });
+
+    return missing;
+  }, [coverageTacticMap, techniqueIndex, techniqueTacticMap, remoteTacticMap, tacticCandidateIds]);
+
+  useEffect(() => {
+    if (missingTacticIds.length === 0) return;
+    const pending = missingTacticIds.filter(id => !pendingTacticRequests.current.has(id));
+    if (pending.length === 0) return;
+    pending.forEach(id => pendingTacticRequests.current.add(id));
+
+    let cancelled = false;
+    const loadTactics = async () => {
+      try {
+        const res = await fetch("/api/mitre-stix/techniques/tactics", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ techniqueIds: pending }),
+        });
+        if (!res.ok) throw new Error("Failed to fetch tactics");
+        const payload = await res.json();
+        if (cancelled || !payload?.tacticsByTechnique) return;
+        setRemoteTacticMap((prev) => {
+          const next = new Map(prev);
+          Object.entries(payload.tacticsByTechnique).forEach(([id, tactics]) => {
+            if (Array.isArray(tactics) && tactics.length > 0) {
+              next.set(normalizeTechniqueId(id), tactics);
+            }
+          });
+          return next;
+        });
+      } catch {
+        pending.forEach(id => pendingTacticRequests.current.delete(id));
+      }
+    };
+
+    loadTactics();
+    return () => {
+      cancelled = true;
+    };
+  }, [missingTacticIds]);
+
   const communityStrategiesCount = useMemo(() => {
     return filteredCommunityStrategies.length;
   }, [filteredCommunityStrategies]);
@@ -1436,11 +1965,10 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                 isStrategyExpanded && "rotate-90"
               )} />
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-2">
                   <code className="text-xs text-primary font-mono">{strategy.id}</code>
                   <span className="font-semibold text-foreground">{strategy.name}</span>
                 </div>
-                <p className="text-sm text-muted-foreground line-clamp-1">{strategy.description}</p>
               </div>
               {!isStrategyExpanded && (
                 <div className="flex items-center gap-2 flex-shrink-0">
@@ -1469,16 +1997,25 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                       const overrideLogSources = getLogSourcesFromMetadata(strategyMetadata);
                       const overrideMutableElements = getMutableElementsFromMetadata(strategyMetadata);
                       const metadataQuery = getQueryFromMetadata(strategyMetadata);
+                      const analyticDcIds = Array.isArray((analytic as AnalyticItem).dataComponents)
+                        ? (analytic as AnalyticItem).dataComponents
+                        : Array.isArray((analytic as StixAnalytic).dataComponents)
+                          ? (analytic as StixAnalytic).dataComponents
+                          : [];
                       const logSources = overrideLogSources.length > 0
-                        ? overrideLogSources
+                        ? mergeVendorLogSources(overrideLogSources, analyticDcIds)
                         : (isStixAnalytic(analytic)
                           ? getLogSourcesForStixAnalytic(analytic)
                           : getLogSourcesForAnalytic(analytic));
+                      const enablementNotes = getEnablementNotes(analyticDcIds, logSources);
                       const mutableElements = overrideMutableElements.length > 0
                         ? overrideMutableElements
                         : (isStixAnalytic(analytic)
                           ? getMutableElementsForStixAnalytic(analytic)
                           : getMutableElementsForAnalytic(analytic));
+                      const showMutableValues = mutableElements.some((element) =>
+                        typeof element.value === 'string' && element.value.trim().length > 0
+                      );
 
                       return (
                         <div key={analyticKey} className="border border-border rounded-md overflow-hidden bg-background">
@@ -1521,6 +2058,7 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                                               href={`https://attack.mitre.org/techniques/${techId.replace('.', '/')}/`}
                                               target="_blank"
                                               rel="noopener noreferrer"
+                                              title={techniqueDescription || undefined}
                                             >
                                               <Badge variant="outline" className="text-xs hover:bg-muted/50 transition-colors">
                                                 <code className="text-red-600 mr-1">{techId}</code>
@@ -1538,11 +2076,6 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                                               </Button>
                                             )}
                                           </div>
-                                          {techniqueDescription && (
-                                            <p className="text-xs text-muted-foreground">
-                                              {techniqueDescription}
-                                            </p>
-                                          )}
                                         </div>
                                       );
                                     })}
@@ -1575,15 +2108,32 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                                             >
                                               {row.dataComponentName}
                                               <span className="text-muted-foreground ml-1">({row.dataComponentId})</span>
-                                            </button>
-                                          </td>
-                                          <td className="px-3 py-2 font-mono text-foreground">{row.logSourceName}</td>
-                                          <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{row.channel}</td>
-                                        </tr>
+                                          </button>
+                                        </td>
+                                        <td className="px-3 py-2 font-mono text-foreground">{row.logSourceName}</td>
+                                        <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{formatChannel(row.channel)}</td>
+                                      </tr>
                                       ))}
                                     </tbody>
                                   </table>
                                 </div>
+                                {enablementNotes.length > 0 && (
+                                  <details className="mt-3 rounded-md border border-border bg-background/60 p-3 text-xs">
+                                    <summary className="cursor-pointer font-medium text-muted-foreground select-none">
+                                      Enablement notes
+                                    </summary>
+                                    <div className="mt-2 space-y-2 text-muted-foreground">
+                                      {enablementNotes.map((entry) => (
+                                        <div key={`${entry.dataComponentName}-${entry.logSourceName}-${entry.note}`}>
+                                          <div className="font-semibold text-foreground">
+                                            {entry.dataComponentName} — {entry.logSourceName}
+                                          </div>
+                                          <div>{entry.note}</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </details>
+                                )}
                               </div>
 
                               {mutableElements.length > 0 && (
@@ -1594,6 +2144,9 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                                       <thead className="bg-muted/50">
                                         <tr>
                                           <th className="text-left px-3 py-2 font-medium text-muted-foreground w-48">Field</th>
+                                          {showMutableValues && (
+                                            <th className="text-left px-3 py-2 font-medium text-muted-foreground w-40">Value</th>
+                                          )}
                                           <th className="text-left px-3 py-2 font-medium text-muted-foreground">Description</th>
                                         </tr>
                                       </thead>
@@ -1601,6 +2154,11 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                                         {mutableElements.map(me => (
                                           <tr key={me.field}>
                                             <td className="px-3 py-2 font-mono text-primary">{me.field}</td>
+                                            {showMutableValues && (
+                                              <td className="px-3 py-2 font-mono text-foreground">
+                                                {me.value ? me.value : <span className="text-muted-foreground">-</span>}
+                                              </td>
+                                            )}
                                             <td className="px-3 py-2 text-foreground">{me.description}</td>
                                           </tr>
                                         ))}
@@ -1645,6 +2203,14 @@ export function ProductView({ product, onBack }: ProductViewProps) {
         const isStrategyExpanded = expandedStrategies.has(strategyKey);
         const stixDataComponents = autoMapping.enrichedMapping?.dataComponents || [];
         const communityAnalytics = autoMapping.enrichedMapping?.communityAnalytics || [];
+        const visibleCommunityAnalytics = communityAnalytics.filter(ca =>
+          hasTechniqueOverlap(ca.techniqueIds, strategy.techniques)
+        );
+        const splunkAnalytics = visibleCommunityAnalytics.filter(ca => getCommunitySource(ca) === 'splunk');
+        const sigmaAnalytics = visibleCommunityAnalytics.filter(ca => getCommunitySource(ca) === 'sigma');
+        const elasticAnalytics = visibleCommunityAnalytics.filter(ca => getCommunitySource(ca) === 'elastic');
+        const azureAnalytics = visibleCommunityAnalytics.filter(ca => getCommunitySource(ca) === 'azure');
+        const ctidAnalytics = visibleCommunityAnalytics.filter(ca => getCommunitySource(ca) === 'ctid');
         const strategyCommunitySources = new Set<ResourceType>();
         communityAnalytics.forEach(ca => {
           const source = getCommunitySource(ca);
@@ -1670,11 +2236,10 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                 isStrategyExpanded && "rotate-90"
               )} />
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-2">
                   <code className="text-xs text-primary font-mono">{strategy.id}</code>
                   <span className="font-semibold text-foreground">{strategy.name}</span>
                 </div>
-                <p className="text-sm text-muted-foreground line-clamp-1">{strategy.description}</p>
               </div>
               {!isStrategyExpanded && (
                 <div className="flex items-center gap-2 flex-shrink-0">
@@ -1714,41 +2279,37 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                     {analytics.map((analytic) => {
                       const analyticKey = `${sectionKey}-analytic-${analytic.id}`;
                       const isAnalyticExpanded = expandedAnalytics.has(analyticKey);
-                      const visibleCommunityAnalytics = communityAnalytics.filter(ca => {
-                        const source = getCommunitySource(ca);
-                        if (!source || !sourceFilters.has(source)) return false;
-                        return hasTechniqueOverlap(ca.techniqueIds, strategy.techniques);
-                      });
-                      const splunkAnalytics = visibleCommunityAnalytics.filter(ca =>
-                        getCommunitySource(ca) === 'splunk'
-                      );
-                      const elasticAnalytics = visibleCommunityAnalytics.filter(ca =>
-                        getCommunitySource(ca) === 'elastic'
-                      );
-                      const azureAnalytics = visibleCommunityAnalytics.filter(ca =>
-                        getCommunitySource(ca) === 'azure'
-                      );
-                      const sigmaAnalytics = visibleCommunityAnalytics.filter(ca =>
-                        getCommunitySource(ca) === 'sigma'
-                      );
-                      const ctidAnalytics = visibleCommunityAnalytics.filter(ca =>
-                        getCommunitySource(ca) === 'ctid'
-                      );
-
-                      const uniqueLogSources = getLogSourcesForStixAnalytic(analytic);
-                      const uniqueMutableElements = getMutableElementsForStixAnalytic(analytic);
-                      const elasticMutableElements = getCommunityMutableElements(elasticAnalytics, 'Elastic');
-                      const azureMutableElements = getCommunityMutableElements(azureAnalytics, 'Azure');
+                      const uniqueLogSources = isStixAnalytic(analytic)
+                        ? getLogSourcesForStixAnalytic(analytic)
+                        : getLogSourcesForAnalytic(analytic as AnalyticItem);
+                      const analyticDcIds = Array.isArray((analytic as StixAnalytic).dataComponents)
+                        ? (analytic as StixAnalytic).dataComponents
+                        : Array.isArray((analytic as AnalyticItem).dataComponents)
+                          ? (analytic as AnalyticItem).dataComponents
+                          : [];
+                      const enablementNotes = getEnablementNotes(analyticDcIds, uniqueLogSources);
+                      const uniqueMutableElements = isStixAnalytic(analytic)
+                        ? getMutableElementsForStixAnalytic(analytic)
+                        : getMutableElementsForAnalytic(analytic as AnalyticItem);
                       const combinedMutableElements = (() => {
-                        const seen = new Set<string>();
-                        const rows: MutableElementRow[] = [];
-                        [...uniqueMutableElements, ...elasticMutableElements, ...azureMutableElements].forEach(me => {
-                          const key = me.field.toLowerCase();
-                          if (seen.has(key)) return;
-                          seen.add(key);
-                          rows.push(me);
+                        const combined = new Map<string, MutableElementRow>();
+                        uniqueMutableElements.forEach((element) => {
+                          combined.set(element.field.toLowerCase(), element);
                         });
-                        return rows;
+                        const communityElements = [
+                          ...getCommunityMutableElements(splunkAnalytics, 'Splunk'),
+                          ...getCommunityMutableElements(sigmaAnalytics, 'Sigma'),
+                          ...getCommunityMutableElements(elasticAnalytics, 'Elastic'),
+                          ...getCommunityMutableElements(azureAnalytics, 'Azure'),
+                          ...getCommunityMutableElements(ctidAnalytics, 'CTID'),
+                        ];
+                        communityElements.forEach((element) => {
+                          const key = element.field.toLowerCase();
+                          if (!combined.has(key)) {
+                            combined.set(key, element);
+                          }
+                        });
+                        return Array.from(combined.values());
                       })();
                       const hasMitreEnrichment = uniqueLogSources.length > 0 || uniqueMutableElements.length > 0;
                       const hasSplunkData = splunkAnalytics.length > 0;
@@ -1807,25 +2368,24 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                                 <div>
                                   <h5 className="text-sm font-medium text-muted-foreground mb-2">Techniques</h5>
                                   <div className="flex flex-wrap gap-1">
-                                    {strategy.techniques.map(techId => (
+                                    {strategy.techniques.map(techId => {
+                                      const techniqueDescription = resolveTechniqueDescription(techId);
+                                      return (
                                       <div key={techId} className="flex flex-col gap-1">
                                         <a
                                           href={`https://attack.mitre.org/techniques/${techId.replace('.', '/')}/`}
                                           target="_blank"
                                           rel="noopener noreferrer"
+                                          title={techniqueDescription || undefined}
                                         >
                                           <Badge variant="outline" className="text-xs hover:bg-muted/50 transition-colors">
                                             <code className="text-red-600 mr-1">{techId}</code>
                                             <ExternalLink className="w-3 h-3 text-muted-foreground" />
                                           </Badge>
                                         </a>
-                                        {resolveTechniqueDescription(techId) && (
-                                          <p className="text-xs text-muted-foreground">
-                                            {resolveTechniqueDescription(techId)}
-                                          </p>
-                                        )}
                                       </div>
-                                    ))}
+                                      );
+                                    })}
                                   </div>
                                 </div>
                               )}
@@ -1856,15 +2416,32 @@ export function ProductView({ product, onBack }: ProductViewProps) {
                                               >
                                                 {row.dataComponentName}
                                                 <span className="text-muted-foreground ml-1">({row.dataComponentId})</span>
-                                              </button>
-                                            </td>
-                                            <td className="px-3 py-2 font-mono text-foreground">{row.logSourceName}</td>
-                                            <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{row.channel}</td>
-                                          </tr>
-                                        ))}
+                                            </button>
+                                          </td>
+                                          <td className="px-3 py-2 font-mono text-foreground">{row.logSourceName}</td>
+                                          <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{formatChannel(row.channel)}</td>
+                                        </tr>
+                                      ))}
                                       </tbody>
                                     </table>
                                   </div>
+                                  {enablementNotes.length > 0 && (
+                                    <details className="mt-3 rounded-md border border-border bg-background/60 p-3 text-xs">
+                                      <summary className="cursor-pointer font-medium text-muted-foreground select-none">
+                                        Enablement notes
+                                      </summary>
+                                      <div className="mt-2 space-y-2 text-muted-foreground">
+                                        {enablementNotes.map((entry) => (
+                                          <div key={`${entry.dataComponentName}-${entry.logSourceName}-${entry.note}`}>
+                                            <div className="font-semibold text-foreground">
+                                              {entry.dataComponentName} — {entry.logSourceName}
+                                            </div>
+                                            <div>{entry.note}</div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </details>
+                                  )}
                                 </div>
                               )}
 
@@ -2211,6 +2788,7 @@ export function ProductView({ product, onBack }: ProductViewProps) {
   const tocItems = [
     { id: 'overview', label: 'Overview' },
     { id: 'coverage', label: 'Coverage Summary' },
+    { id: 'verified-evidence', label: 'Vendor Log Sources' },
     { id: 'detection-strategies', label: 'CTID Mappings' },
     { id: 'community-coverage', label: 'Mappings based from Community Resources' },
   ];
@@ -2522,6 +3100,76 @@ export function ProductView({ product, onBack }: ProductViewProps) {
               </div>
             </div>
 
+            <section className="mt-6" id="verified-evidence">
+              <div className="p-4 rounded-lg border border-border bg-card">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-primary" />
+                    Vendor Log Sources
+                  </h3>
+                </div>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Product-specific log sources captured from research or manual mapping.
+                </p>
+                {verifiedEvidence.length > 0 ? (
+                  <div className="space-y-4">
+                    {verifiedEvidence.map((entry) => {
+                      return (
+                        <div key={entry.dataComponentId} className="rounded-lg border border-border/60 bg-background/50 p-3 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="text-sm font-semibold text-foreground">
+                              {entry.dataComponentId} - {entry.dataComponentName}
+                            </div>
+                          </div>
+                          <div className="border border-border rounded-md overflow-hidden">
+                            <table className="w-full text-xs">
+                              <thead className="bg-muted/50">
+                                <tr>
+                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Log Source</th>
+                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Channel</th>
+                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Notes</th>
+                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Source</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-border">
+                                {entry.logSources.map((source, idx) => (
+                                  <tr key={`${entry.dataComponentId}-${idx}`}>
+                                    <td className="px-3 py-2 font-mono text-foreground">{source.name}</td>
+                                    <td className="px-3 py-2 font-mono text-muted-foreground">{formatChannel(source.channel)}</td>
+                                    <td className="px-3 py-2 text-muted-foreground">
+                                      {source.notes ? source.notes : '-'}
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      {source.sourceUrl ? (
+                                        <a
+                                          href={source.sourceUrl}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="inline-flex items-center rounded-md border border-border/60 bg-background px-2 py-0.5 text-[10px] font-medium text-foreground hover:bg-muted"
+                                        >
+                                          Reference
+                                        </a>
+                                      ) : (
+                                        <span className="text-muted-foreground">-</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground border border-dashed border-border rounded-lg p-4 text-center">
+                    No vendor log sources saved yet.
+                  </div>
+                )}
+              </div>
+            </section>
+
           </header>
 
           <section id="detection-strategies">
@@ -2615,7 +3263,9 @@ export function ProductView({ product, onBack }: ProductViewProps) {
             )}
 
             {filteredCommunityStrategies.length > 0 && (
-              renderAttackTree(communityAttackTree, 'community', renderCommunityStrategyList)
+              <ErrorBoundary>
+                {renderAttackTree(communityAttackTree, 'community', renderCommunityStrategyList)}
+              </ErrorBoundary>
             )}
 
             {autoMapping.data?.status === 'matched' && !autoMapping.isLoading && autoMapping.enrichedMapping && filteredCommunityStrategies.length === 0 && autoMapping.enrichedMapping.techniqueIds.length === 0 && (
@@ -2706,6 +3356,7 @@ export function ProductView({ product, onBack }: ProductViewProps) {
         <DataComponentDetail
           dc={selectedDataComponent}
           platform={platform}
+          vendorEvidence={verifiedEvidenceByDcId.get(selectedDataComponent.id.toLowerCase())}
           onClose={() => setSelectedDataComponent(null)}
         />
       )}

@@ -12,7 +12,7 @@
 
 **Data Sources:**
 - 5 community detection rule repositories (CTID, Sigma, Splunk, Elastic, Azure)
-- MITRE ATT&CK official STIX v18 framework
+- MITRE ATT&CK official STIX v18 framework (baseline via `mitre_stix` adapter, always runs)
 - User-provided guided wizard answers
 - Product stream configurations
 
@@ -27,12 +27,13 @@
    ├─ Enter vendor, name, platforms (Windows/Linux/Cloud/etc)
    └─ Optionally answer guided questions or define streams
 
-2. AUTO-MAPPER RUNS (5 adapters in parallel)
+2. AUTO-MAPPER RUNS (6 adapters in parallel)
    ├─ CTID Adapter: Search official vendor mappings
    ├─ Sigma Adapter: Scan community YAML rules
    ├─ Splunk Adapter: Parse detection YAMLs
    ├─ Elastic Adapter: Extract TOML rules
-   └─ Azure Adapter: Read KQL analytics
+   ├─ Azure Adapter: Read KQL analytics
+   └─ MITRE STIX Adapter: Always runs as a baseline layer
 
 3. KNOWLEDGE GRAPH ENRICHMENT
    ├─ Query MITRE ATT&CK for each discovered technique
@@ -52,6 +53,18 @@
    ├─ Data components needed
    └─ Coverage gaps (techniques not detected)
 ```
+
+---
+
+## 2.1 Auto-Mapper + Wizard Decision Flow (Summary)
+
+1. Capture vendor/product + selected MITRE platforms.
+2. Run community adapters and `mitre_stix` in parallel.
+3. Preserve technique IDs from matched community rules (no overwrite).
+4. If no community matches or user opts in, use the platform-filtered DC wizard (manual or Gemini auto-select).
+5. From selected DCs + platform, infer techniques → strategies → analytics → log sources.
+6. Optional Gemini research fills vendor log name/channel/fields.
+7. Save vendor product page with streams + evidence for reuse.
 
 ---
 
@@ -155,9 +168,9 @@ tags:
 
 ---
 
-### Adapter 6: MITRE STIX (Fallback)
+### Adapter 6: MITRE STIX (Baseline)
 **Source:** MITRE ATT&CK official STIX data
-**Role:** Fallback for products with no community rules
+**Role:** Always runs as a baseline layer (does not override community rule techniques)
 
 **What it does:**
 - Uses platform filters to suggest relevant data components
@@ -181,13 +194,15 @@ runAutoMapper(productName, vendor, platform)
   │  ├─ Sigma: findRemoteRules() → parse YAML → extract techniques
   │  ├─ Splunk: findDetections() → parse YAML → extract fields
   │  ├─ Elastic: findRules() → parse TOML → extract techniques
-  │  └─ Azure: findAnalytics() → parse YAML → extract techniques
+  │  ├─ Azure: findAnalytics() → parse YAML → extract techniques
+  │  └─ MITRE STIX: fetch STIX → suggest baseline DCs/analytics
   │
   ├─ Stream Resolution (NEW!)
   │  ├─ For each rawSource (data source from adapter)
   │  ├─ Try to match to configured product.streams
   │  ├─ If matched: use stream's mapped data components
   │  └─ If not matched: infer from Knowledge Graph
+  │     (Only infer techniques when the rule has none)
   │
   ├─ AI Validation (Sigma/Splunk only, first 5 rules)
   │  ├─ Call Google Gemini API
@@ -279,7 +294,7 @@ Input: vendor="Microsoft", product="Defender"
 ```
 
 ### Step 2: Community Rule Matching
-**Goal:** Find detection rules from 5 adapters matching this product
+**Goal:** Find detection rules from 5 community adapters, while `mitre_stix` runs as baseline
 
 Each adapter:
 1. Searches its repository
@@ -290,7 +305,7 @@ Each adapter:
 **Concurrency:** 2 adapters run in parallel (limit prevents API throttling)
 
 ### Step 3: Technique Extraction
-**Goal:** Pull out attack technique IDs from rules
+**Goal:** Pull out attack technique IDs from rules (never overwrite explicit IDs)
 
 **Methods (in priority order):**
 1. **Direct:** Extract T-codes from tags/metadata
@@ -299,7 +314,7 @@ Each adapter:
    → Extracted: [T1055, T1134]
    ```
 
-2. **Inference:** Map data sources → data components → techniques
+2. **Inference (only when no technique IDs):** Map data sources → data components → techniques
    ```
    data_source: "Windows Event Logs (Process Creation)"
    → "Process Creation" data component
@@ -445,6 +460,13 @@ Write to `ssm_capabilities` table:
     └──────────────────────────────────────┘
 ```
 
+**Edge provenance (current ingest)**  
+- `detects` edges are created for Strategy → Technique and Data Component → Technique.  
+- Strategy → Technique `detects` edges include `edges.attributes.provenance` (STIX relationship when present).  
+- Data Component → Technique `detects` edges are **derived** unless ingested from STIX `relationship` objects (feature-detected); derived edges carry `edges.attributes.provenance`.  
+- `uses` and `looks_for` edges are created from STIX `_ref/_refs` fields (not STIX `relationship` objects), so their provenance is "stix_ref_field."  
+- Some ATT&CK bundles may include explicit relationship objects; ingestion feature-detects those and prefers them when present, otherwise derives edges from STIX reference fields/metadata.
+
 ### Storage Layers
 
 **1. Relational Tables** (Product & Mapping Data)
@@ -459,12 +481,13 @@ Write to `ssm_capabilities` table:
   - Indexed: (attributes->'externalId')
 - `edges` - Relationships between nodes
   - Indexed: (source_id, target_id, type)
+  - `attributes` JSONB for edge provenance (where applicable)
 
 **3. In-Memory Cache** (Performance)
 - Technique → Strategies mapping
 - Strategy → Analytics mapping
 - Analytics → Data Components mapping
-- Data Component → Techniques (reverse lookup)
+- Data Component → Techniques (reverse lookup; derived convenience)
 
 ---
 

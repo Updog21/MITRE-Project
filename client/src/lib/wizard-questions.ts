@@ -793,9 +793,9 @@ export const WIZARD_QUESTION_SETS: Record<string, WizardQuestionSet> = {
       },
     ],
   },
-  'ESXi / Virtualization': {
-    id: 'ESXi / Virtualization',
-    label: 'ESXi / Virtualization',
+  'ESXi': {
+    id: 'ESXi',
+    label: 'ESXi',
     description: 'Hypervisor and virtualization control-plane telemetry.',
     categories: [
       {
@@ -829,45 +829,8 @@ export const WIZARD_QUESTION_SETS: Record<string, WizardQuestionSet> = {
       },
     ],
   },
-  'Database Platform': {
-    id: 'Database Platform',
-    label: 'Database Platform',
-    description: 'Managed or self-hosted database audit telemetry.',
-    categories: [
-      {
-        id: 'identity-access',
-        label: 'Identity & access',
-        description: 'Database authentication and account lifecycle.',
-        questions: identityQuestions('db'),
-      },
-      {
-        id: 'execution',
-        label: 'Execution',
-        description: 'Query and command activity.',
-        questions: [
-          {
-            id: 'db-queries',
-            text: 'Does it record query execution or database commands?',
-            dcNames: ['Application Log Content', 'Command Execution'],
-          },
-        ],
-      },
-      {
-        id: 'persistence-config',
-        label: 'Persistence & configuration',
-        description: 'Privilege and configuration changes.',
-        questions: [
-          {
-            id: 'db-config',
-            text: 'Does it record configuration or privilege changes?',
-            dcNames: ['Configuration Modification', 'Group Modification'],
-          },
-        ],
-      },
-    ],
-  },
-  Enrichment: {
-    id: 'Enrichment',
+  None: {
+    id: 'None',
     label: 'External Threat Intelligence',
     description: 'External scanning, DNS intelligence, certificates, and OSINT sources',
     categories: [
@@ -918,14 +881,18 @@ export const WIZARD_QUESTION_SETS: Record<string, WizardQuestionSet> = {
 };
 
 export const WIZARD_CONTEXT_ALIASES: Record<string, string> = {
-  'Office 365': 'Office Suite',
-  'Google Workspace': 'Office Suite',
-  'Azure AD': 'Identity Provider',
-  'Identity': 'Identity Provider',
-  'SaaS Application': 'SaaS',
-  'Cloud Infrastructure': 'IaaS',
-  'Container/Kubernetes': 'Containers',
-  'Network': 'Network Devices',
-  'Network Devices': 'Network Devices',
-  'ESXi': 'ESXi / Virtualization',
+  'office 365': 'Office Suite',
+  'google workspace': 'Office Suite',
+  'azure ad': 'Identity Provider',
+  'active directory': 'Identity Provider',
+  'identity': 'Identity Provider',
+  'saas application': 'SaaS',
+  'cloud infrastructure': 'IaaS',
+  'container/kubernetes': 'Containers',
+  'network': 'Network Devices',
+  'network / network devices': 'Network Devices',
+  'network devices': 'Network Devices',
+  'esxi': 'ESXi',
+  'esxi / virtualization': 'ESXi',
+  'enrichment': 'None',
 };

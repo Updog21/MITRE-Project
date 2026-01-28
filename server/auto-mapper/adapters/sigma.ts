@@ -23,18 +23,9 @@ import { productService } from '../../services';
 import { fetchWithTimeout } from '../../utils/fetch';
 import { buildTechniqueContext, mergeTechniqueContexts } from '../graph-context';
 
-// Confidence Modifiers by rule source type
-const MODIFIERS: Record<string, number> = {
-  'generic': 1.0,
-  'emerging': 1.0,
-  'hunting': 0.8,
-  'compliance': 0.5
-};
-
 interface ScoredId {
   id: string;                          // T-Code or DC-Name
   type: 'technique' | 'data-component';
-  confidence: number;
   source: string;                      // 'tag' or 'inference'
 }
 
@@ -176,8 +167,6 @@ export class SigmaAdapter implements ResourceAdapter {
       // A. Match Product
       if (!this.ruleMatches(doc, searchTerms)) return null;
 
-      const ruleType = this.getRuleType(filePath);
-      const modifier = MODIFIERS[ruleType] || 1.0;
       const ids: ScoredId[] = [];
 
       // B. Tier 1: Direct Technique IDs (The Preferred Path)
@@ -186,7 +175,6 @@ export class SigmaAdapter implements ResourceAdapter {
         tagIds.forEach(tId => ids.push({
           id: tId,
           type: 'technique',
-          confidence: 100 * modifier,
           source: 'tag'
         }));
       }
@@ -200,7 +188,6 @@ export class SigmaAdapter implements ResourceAdapter {
           ids.push({
             id: mitreDcName,
             type: 'data-component',
-            confidence: 75 * modifier,
             source: 'inference'
           });
         }
@@ -278,7 +265,7 @@ export class SigmaAdapter implements ResourceAdapter {
    * FINAL STEP: Use Workbench to determine everything else
    */
   private hydrateFromWorkbench(productName: string, extractedRules: ExtractedRule[]): NormalizedMapping {
-    const techniquesMap = new Map<string, { techniqueId: string; confidence: number }>();
+    const techniquesSet = new Set<string>();
     const analytics: AnalyticMapping[] = [];
     const dcMap = new Set<string>();
 
@@ -292,7 +279,7 @@ export class SigmaAdapter implements ResourceAdapter {
           // We have the T-ID directly. Just verify it exists in graph.
           const tech = mitreKnowledgeGraph.getTechnique(idObj.id);
           if (tech) {
-            this.addTechnique(techniquesMap, tech.id, idObj.confidence);
+            techniquesSet.add(tech.id);
             ruleTechniqueIds.add(tech.id);
           }
         }
@@ -305,7 +292,7 @@ export class SigmaAdapter implements ResourceAdapter {
           );
 
           inferredTechs.forEach(t => {
-            this.addTechnique(techniquesMap, t.id, idObj.confidence);
+            techniquesSet.add(t.id);
             ruleTechniqueIds.add(t.id);
           });
 
@@ -334,11 +321,6 @@ export class SigmaAdapter implements ResourceAdapter {
       });
     }
 
-    // Convert Maps to Arrays for Final Output
-    const allTechniques = Array.from(techniquesMap.values());
-    const confidence = allTechniques.length ?
-      Math.round(allTechniques.reduce((a, b) => a + b.confidence, 0) / allTechniques.length) : 0;
-
     const dataComponents: DataComponentMapping[] = Array.from(dcMap).map(name => ({
       id: `DC-${name.replace(/\s+/g, '-')}`,
       name,
@@ -346,7 +328,8 @@ export class SigmaAdapter implements ResourceAdapter {
     }));
 
     // Enrich analytics with STIX context (log sources, channels, mutable elements)
-    const stixContext = buildTechniqueContext(allTechniques.map(t => t.techniqueId));
+    const allTechniqueIds = Array.from(techniquesSet);
+    const stixContext = buildTechniqueContext(allTechniqueIds);
     if (stixContext.size > 0) {
       for (const analytic of analytics) {
         if (!analytic.techniqueIds || analytic.techniqueIds.length === 0) continue;
@@ -373,8 +356,8 @@ export class SigmaAdapter implements ResourceAdapter {
     return {
       productId: productName,
       source: 'sigma',
-      confidence,
-      detectionStrategies: allTechniques.map(t => `DS-${t.techniqueId}`),
+      confidence: 0,
+      detectionStrategies: allTechniqueIds.map(t => `DS-${t}`),
       analytics,
       dataComponents,
       rawData: { rules: extractedRules }
@@ -382,12 +365,6 @@ export class SigmaAdapter implements ResourceAdapter {
   }
 
   // --- Helpers ---
-
-  private addTechnique(map: Map<string, { techniqueId: string; confidence: number }>, id: string, conf: number) {
-    if (!map.has(id) || map.get(id)!.confidence < conf) {
-      map.set(id, { techniqueId: id, confidence: conf });
-    }
-  }
 
   private buildSearchTerms(productName: string, vendor: string): string[] {
     const combined = `${vendor} ${productName}`.trim().toLowerCase();

@@ -1,20 +1,10 @@
 import { z } from "zod";
+import { PLATFORM_VALUES } from "../platforms";
 
 // The Rubric Enums (Strictly enforced)
 export const SsmCategoryEnum = z.enum(["Protect", "Detect", "Respond"]);
 export const SsmScoreValueEnum = z.enum(["Minimal", "Partial", "Significant"]);
-export const SsmPlatformEnum = z.enum([
-  "Windows",
-  "Linux",
-  "macOS",
-  "AWS",
-  "Azure",
-  "GCP",
-  "SaaS",
-  "Office365",
-  "Network",
-  "Containers",
-]);
+export const SsmPlatformEnum = z.enum(PLATFORM_VALUES);
 
 // 1. The Mapping (Child)
 export const SsmMappingSchema = z.object({

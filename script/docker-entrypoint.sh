@@ -22,11 +22,11 @@ npm run db:seed
 log "db:seed completed."
 
 log "Backfilling local graph..."
-npx tsx server/scripts/backfill-local-graph.ts
+node --import tsx server/scripts/backfill-local-graph.ts
 log "backfill-local-graph completed."
 
 log "Initializing MITRE graph..."
-npx tsx server/scripts/init-mitre-graph.ts
+node --import tsx server/scripts/init-mitre-graph.ts
 log "init-mitre-graph completed."
 
 log "Starting server..."

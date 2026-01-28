@@ -18,6 +18,7 @@ RUN git clone --depth 1 --single-branch --filter=blob:none https://github.com/Si
     git -C /app/data/azure-sentinel sparse-checkout set --no-cone 'Solutions/**/Analytic Rules/**'
 
 COPY package*.json ./
+RUN npm install --package-lock-only --no-audit --no-fund
 RUN npm install --no-audit --no-fund
 
 # Copy configuration files

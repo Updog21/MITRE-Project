@@ -21,35 +21,11 @@ import { getProductMapping } from '@/lib/v18Data';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { PLATFORM_VALUES, platformMatchesAny } from '@shared/platforms';
 
 type ViewState = 'search' | 'product';
 
-const platformOptions = [
-  'All Platforms',
-  'Windows Endpoint',
-  'Linux Server/Endpoint',
-  'macOS Endpoint',
-  'Identity Provider',
-  'Cloud Infrastructure',
-  'SaaS Application',
-  'Container/Kubernetes',
-  'Network Devices',
-  'Office Suite',
-  'ESXi / VMware',
-];
-
-const platformMatchMap: Record<string, string[]> = {
-  'Windows Endpoint': ['Windows'],
-  'Linux Server/Endpoint': ['Linux'],
-  'macOS Endpoint': ['macOS'],
-  'Identity Provider': ['Azure AD', 'Identity Provider'],
-  'Cloud Infrastructure': ['IaaS', 'Cloud', 'Azure', 'AWS', 'GCP'],
-  'SaaS Application': ['SaaS', 'Office 365'],
-  'Container/Kubernetes': ['Containers', 'Kubernetes'],
-  'Network Devices': ['Network'],
-  'Office Suite': ['Office 365'],
-  'ESXi / VMware': ['ESXi'],
-};
+const platformOptions = ['All Platforms', ...PLATFORM_VALUES];
 
 function convertProductToAsset(product: Product): Asset {
   return {
@@ -137,10 +113,7 @@ export default function Dashboard() {
     ? (apiProducts || []).map(convertProductToAsset)
     : mergedProducts.filter(p => {
         if (activeCategories.includes('All Platforms')) return true;
-        return activeCategories.some(category => {
-          const matches = platformMatchMap[category] || [category];
-          return matches.some(match => p.platforms.includes(match));
-        });
+        return activeCategories.some(category => platformMatchesAny(p.platforms, [category]));
       });
 
   const counts = filteredProducts.reduce(

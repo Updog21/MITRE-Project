@@ -1,22 +1,189 @@
 import type { Express, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertProductSchema, insertDataComponentSchema, insertDetectionStrategySchema, insertAnalyticSchema, insertMitreAssetSchema, insertProductAliasSchema, insertProductStreamSchema, products, productAliases, productStreams, ssmCapabilities, ssmMappings, techniques } from "@shared/schema";
+import { insertProductSchema, insertDataComponentSchema, insertDetectionStrategySchema, insertAnalyticSchema, insertMitreAssetSchema, insertProductAliasSchema, insertProductStreamSchema, products, productAliases, productStreams, ssmCapabilities, ssmMappings, techniques, settings } from "@shared/schema";
 import { fromZodError } from "zod-validation-error";
 import { runAutoMapper, getMappingStatus, getAllProductMappings, RESOURCE_PRIORITY } from "./auto-mapper";
 import { slugifyPlatform } from "./auto-mapper/utils";
 import { mitreKnowledgeGraph } from "./mitre-stix";
-import { productService, adminService, getAllDetections } from "./services";
+import { getChannelsForDCs } from "./mitre-stix/channel-aggregator";
+import { productService, adminService, getAllDetections, rebuildDetectionsIndex, geminiMappingService, geminiResearchService, settingsService } from "./services";
 import { getGlobalCoverage } from "./services/coverage-service";
 import { getCoverageGaps, getCoveragePaths } from "./services/gap-analysis-service";
 import { db } from "./db";
 import { and, eq, inArray } from "drizzle-orm";
 import { getCache, setCache, buildCacheKey } from "./utils/cache";
+import { PLATFORM_VALUES, normalizePlatformList, platformMatchesAny } from "../shared/platforms";
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+
+  const buildShortDescription = (description: string): string => {
+    const trimmed = description.trim();
+    if (!trimmed) return "";
+    const match = trimmed.match(/^[^.!?]+[.!?]/);
+    if (match) return match[0].trim();
+    if (trimmed.length <= 200) return trimmed;
+    return `${trimmed.slice(0, 200).trim()}...`;
+  };
+
+  const extractExamples = (description: string): string[] => {
+    const trimmed = description.trim();
+    if (!trimmed) return [];
+    const lower = trimmed.toLowerCase();
+    const idx = lower.indexOf("examples:");
+    if (idx === -1) return [];
+    const remainder = trimmed.slice(idx + "examples:".length).trim();
+    if (!remainder) return [];
+    const snippet = remainder.slice(0, 400);
+    const lines = snippet
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const items: string[] = [];
+    const pushItem = (value: string) => {
+      const cleaned = value.replace(/^[-*]\s+/, "").trim();
+      if (!cleaned) return;
+      items.push(cleaned);
+    };
+
+    if (lines.length <= 1) {
+      const parts = snippet
+        .split(/[\.;]+/)
+        .map((part) => part.trim())
+        .filter(Boolean);
+      for (const part of parts) {
+        pushItem(part);
+        if (items.length >= 3) break;
+      }
+    } else {
+      for (const line of lines) {
+        pushItem(line);
+        if (items.length >= 3) break;
+      }
+    }
+
+    return items;
+  };
+
+  const UI_PLATFORM_OPTIONS = PLATFORM_VALUES;
+
+  const getDataComponentsForPlatforms = async (
+    platforms: string[],
+    includeDeprecated: boolean,
+    includeUnscoped: boolean
+  ) => {
+    const normalizedPlatforms = normalizePlatformList(platforms);
+    let graphReady = true;
+    try {
+      await mitreKnowledgeGraph.ensureInitialized();
+    } catch (error) {
+      graphReady = false;
+      console.warn("MITRE graph unavailable, falling back to stored data components.", error);
+    }
+
+    const baseComponents = graphReady
+      ? mitreKnowledgeGraph.getAllDataComponents()
+        .filter((dc) => includeDeprecated || (!dc.revoked && !dc.deprecated))
+      : [];
+
+    let fallbackReason: "none" | "no_detection_content" | "graph_unavailable" | "no_platform_matches" = "none";
+    let unscopedIncluded = false;
+    let filtered: typeof baseComponents = baseComponents;
+
+    if (!graphReady && normalizedPlatforms.length > 0) {
+      fallbackReason = "graph_unavailable";
+      filtered = [];
+    } else if (graphReady && normalizedPlatforms.length > 0) {
+      const derived = mitreKnowledgeGraph
+        .getDataComponentsForPlatformsViaTechniques(normalizedPlatforms)
+        .filter((dc) => includeDeprecated || (!dc.revoked && !dc.deprecated));
+      filtered = derived;
+      if (derived.length === 0) {
+        fallbackReason = "no_detection_content";
+        if (includeUnscoped) {
+          filtered = baseComponents;
+          unscopedIncluded = true;
+        } else if (normalizedPlatforms.length > 0) {
+          fallbackReason = "no_detection_content";
+        }
+      }
+    }
+
+    const hasDerivedScope = normalizedPlatforms.length > 0 && !unscopedIncluded && filtered.length > 0;
+    let components = filtered.map((dc) => {
+      const platformList = dc.platforms || [];
+      const description = dc.description || "";
+      return {
+        id: dc.id,
+        name: dc.name,
+        description,
+        shortDescription: buildShortDescription(description),
+        examples: extractExamples(description),
+        dataSourceId: dc.dataSourceId,
+        dataSourceName: dc.dataSourceName,
+        platforms: platformList,
+        domains: dc.domains,
+        revoked: dc.revoked,
+        deprecated: dc.deprecated,
+        relevanceScore: hasDerivedScope
+          ? 1
+          : platformMatchesAny(platformList, normalizedPlatforms) ? 1 : 0,
+      };
+    });
+
+    if (components.length === 0) {
+      const allowUnscopedFallback = includeUnscoped
+        && (fallbackReason === "no_detection_content" || fallbackReason === "graph_unavailable");
+      if (!allowUnscopedFallback) {
+        return {
+          components,
+          meta: {
+            total: baseComponents.length,
+            withPlatforms: baseComponents.filter((dc) => (dc.platforms || []).length > 0).length,
+            matched: components.length,
+            fallbackReason,
+            unscopedIncluded,
+          },
+        };
+      }
+
+      const stored = await storage.getAllDataComponents();
+      components = stored
+        .filter((dc) => includeDeprecated || (!dc.revoked && !dc.deprecated))
+        .map((dc) => {
+          const description = dc.description || "";
+          return {
+            id: dc.componentId,
+            name: dc.name,
+            description,
+            shortDescription: buildShortDescription(description),
+            examples: extractExamples(description),
+            dataSourceId: dc.dataSourceId || undefined,
+            dataSourceName: dc.dataSourceName || undefined,
+            platforms: [],
+            domains: dc.domains || [],
+            revoked: dc.revoked,
+            deprecated: dc.deprecated,
+            relevanceScore: 0,
+          };
+        });
+      unscopedIncluded = true;
+    }
+
+    return {
+      components,
+      meta: {
+        total: baseComponents.length,
+        withPlatforms: baseComponents.filter((dc) => (dc.platforms || []).length > 0).length,
+        matched: components.length,
+        fallbackReason,
+        unscopedIncluded,
+      },
+    };
+  };
 
   const respondWithCache = async <T>(
     key: string,
@@ -173,9 +340,9 @@ export async function registerRoutes(
       const platformList = Array.isArray(platforms) && platforms.length > 0
         ? platforms
         : (productRow.platforms || []);
-      const normalizedPlatforms = platformList
-        .map((platform: unknown) => (typeof platform === "string" ? platform.trim() : ""))
-        .filter((platform: string) => platform.length > 0);
+      const normalizedPlatforms = normalizePlatformList(
+        platformList.map((platform: unknown) => (typeof platform === "string" ? platform.trim() : ""))
+      );
       if (normalizedPlatforms.length === 0) {
         return res.status(400).json({ error: "At least one platform is required" });
       }
@@ -252,15 +419,6 @@ export async function registerRoutes(
         });
       });
 
-      const platformMatches = (techPlatforms: string[], targetPlatform: string) => {
-        if (!techPlatforms || techPlatforms.length === 0) return true;
-        const target = targetPlatform.toLowerCase();
-        return techPlatforms.some((platform) => {
-          const candidate = platform.toLowerCase();
-          return candidate.includes(target) || target.includes(candidate);
-        });
-      };
-
       const techniquesByPlatform = new Map<string, Array<{ id: string; name: string; dataComponents: Set<string> }>>();
       normalizedPlatforms.forEach((platform) => {
         techniquesByPlatform.set(platform, []);
@@ -269,7 +427,7 @@ export async function registerRoutes(
       const matchedTechniqueIds = new Set<string>();
       techniqueById.forEach(({ technique, dataComponents }) => {
         normalizedPlatforms.forEach((platform) => {
-          if (!platformMatches(technique.platforms, platform)) return;
+          if (!platformMatchesAny(technique.platforms, [platform])) return;
           matchedTechniqueIds.add(technique.id);
           techniquesByPlatform.get(platform)?.push({
             id: technique.id,
@@ -332,6 +490,7 @@ export async function registerRoutes(
 
       res.json({
         techniques: matchedTechniqueIds.size,
+        techniqueIds: Array.from(matchedTechniqueIds),
         dataComponents: resolvedComponents.length,
         sources: Array.from(dataSources),
         platforms: normalizedPlatforms,
@@ -721,8 +880,10 @@ export async function registerRoutes(
 
   app.get("/api/detections", async (_req, res) => {
     try {
-      const key = buildCacheKey(["detections"]);
-      await respondWithCache(key, 5 * 60 * 1000, () => getAllDetections(), res);
+      const query = typeof _req.query.q === "string" ? _req.query.q : "";
+      const normalized = query.trim();
+      const key = buildCacheKey(["detections", normalized || "all"]);
+      await respondWithCache(key, 5 * 60 * 1000, () => getAllDetections(normalized), res);
     } catch (error) {
       console.error("Error fetching detections:", error);
       res.status(500).json({ error: "Failed to fetch detections" });
@@ -801,14 +962,55 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/mitre-stix/platforms", async (_req, res) => {
+  // Get tactics for multiple techniques
+  app.post("/api/mitre-stix/techniques/tactics", async (req, res) => {
     try {
       await mitreKnowledgeGraph.ensureInitialized();
+      const { techniqueIds } = req.body;
+
+      if (!Array.isArray(techniqueIds)) {
+        return res.status(400).json({ error: "techniqueIds must be an array" });
+      }
+
+      const normalizedIds: string[] = [];
+      const seen = new Set<string>();
+      for (const id of techniqueIds) {
+        if (typeof id !== "string") continue;
+        const normalized = mitreKnowledgeGraph.normalizeTechniqueId(id) || id.trim().toUpperCase();
+        if (!normalized || seen.has(normalized)) continue;
+        seen.add(normalized);
+        normalizedIds.push(normalized);
+      }
+
+      const key = buildCacheKey(["mitre-stix", "tactics", normalizedIds.join(",")]);
+      await respondWithCache(
+        key,
+        5 * 60 * 1000,
+        async () => {
+          const tacticsByTechnique: Record<string, string[]> = {};
+          normalizedIds.forEach((techniqueId) => {
+            const tactics = mitreKnowledgeGraph.getTactics(techniqueId);
+            if (tactics.length > 0) {
+              tacticsByTechnique[techniqueId] = tactics;
+            }
+          });
+          return { tacticsByTechnique };
+        },
+        res
+      );
+    } catch (error) {
+      console.error("Error getting technique tactics:", error);
+      res.status(500).json({ error: "Failed to get technique tactics" });
+    }
+  });
+
+  app.get("/api/mitre-stix/platforms", async (_req, res) => {
+    try {
       const key = buildCacheKey(["mitre-stix", "platforms"]);
       await respondWithCache(
         key,
         5 * 60 * 1000,
-        () => Promise.resolve({ platforms: mitreKnowledgeGraph.getPlatforms() }),
+        () => Promise.resolve({ platforms: UI_PLATFORM_OPTIONS }),
         res
       );
     } catch (error) {
@@ -819,30 +1021,30 @@ export async function registerRoutes(
 
   app.get("/api/mitre/data-components", async (req, res) => {
     try {
-      await mitreKnowledgeGraph.ensureInitialized();
       const platform = typeof req.query.platform === "string" ? req.query.platform.trim() : "";
-      const normalizedPlatform = platform.toLowerCase();
-      const cacheKey = buildCacheKey(["mitre-data-components", normalizedPlatform || "all"]);
+      const platformsParam = typeof req.query.platforms === "string" ? req.query.platforms.trim() : "";
+      const includeDeprecated = req.query.includeDeprecated === "true";
+      const includeUnscoped = req.query.include_unscoped === "true";
+      const platformList = platformsParam
+        ? platformsParam.split(",").map((item) => item.trim()).filter(Boolean)
+        : platform
+          ? [platform]
+          : [];
+      const normalizedPlatforms = normalizePlatformList(platformList);
+      const platformKey = normalizedPlatforms.map((item) => item.toLowerCase()).join(",") || "all";
+      const cacheKey = buildCacheKey([
+        "mitre-data-components",
+        platformKey,
+        includeDeprecated ? "with-deprecated" : "active",
+        includeUnscoped ? "with-unscoped" : "strict",
+      ]);
 
       await respondWithCache(
         cacheKey,
         5 * 60 * 1000,
-        () => {
-          const components = mitreKnowledgeGraph.getAllDataComponents().map(dc => {
-            const derivedPlatforms = dc.derivedPlatforms || [];
-            const isRecommended = normalizedPlatform
-              ? derivedPlatforms.some(p => p.toLowerCase() === normalizedPlatform)
-              : true;
-            return {
-              id: dc.id,
-              name: dc.name,
-              description: dc.description,
-              dataSourceName: dc.dataSourceName,
-              platforms: derivedPlatforms,
-              relevanceScore: isRecommended ? 1 : 0,
-            };
-          });
-          return Promise.resolve({ dataComponents: components });
+        async () => {
+          const { components, meta } = await getDataComponentsForPlatforms(normalizedPlatforms, includeDeprecated, includeUnscoped);
+          return Promise.resolve({ dataComponents: components, meta });
         },
         res
       );
@@ -876,6 +1078,139 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error validating data components:", error);
       res.status(500).json({ error: "Failed to validate data components" });
+    }
+  });
+
+  app.post("/api/ai/gemini/data-components", async (req, res) => {
+    try {
+      const { vendor, product, description, platforms, aliases } = req.body || {};
+      if (!Array.isArray(platforms) || platforms.length === 0) {
+        return res.status(400).json({ error: "platforms must be a non-empty array" });
+      }
+
+      const normalizedPlatforms = normalizePlatformList(
+        platforms.map((item: string) => item.trim()).filter(Boolean)
+      );
+      const { components: candidates } = await getDataComponentsForPlatforms(normalizedPlatforms, false, false);
+
+      if (candidates.length === 0) {
+        return res.status(400).json({ error: "No data components available for the selected platforms." });
+      }
+
+      const result = await geminiMappingService.suggestDataComponents({
+        vendor,
+        product,
+        description,
+        aliases: Array.isArray(aliases) ? aliases : undefined,
+        platforms: normalizedPlatforms,
+        candidates: candidates.map((candidate) => ({
+          id: candidate.id,
+          name: candidate.name,
+          description: candidate.shortDescription || candidate.description,
+          dataSourceName: candidate.dataSourceName,
+          examples: candidate.examples || [],
+        })),
+      });
+
+      if (!result) {
+        return res.status(400).json({ error: "Gemini API key is not configured." });
+      }
+
+      res.json({
+        suggestedIds: result.suggestedIds,
+        notes: result.notes,
+        candidateCount: candidates.length,
+        evaluatedCount: result.evaluatedCount,
+        decisions: result.decisions,
+        sources: result.sources,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("Error generating Gemini data component suggestions:", error);
+      res.status(500).json({ error: `Failed to generate Gemini suggestions: ${message}` });
+    }
+  });
+
+  app.post("/api/ai/research/platforms", async (req, res) => {
+    try {
+      const { vendor, product, description, platforms } = req.body || {};
+      const normalizedPlatforms = Array.isArray(platforms)
+        ? normalizePlatformList(platforms.map((item: string) => item.trim()).filter(Boolean))
+        : [];
+      if (!vendor && !product) {
+        return res.status(400).json({ error: "vendor or product is required" });
+      }
+
+      const result = await geminiResearchService.suggestPlatforms({
+        vendor,
+        product,
+        description,
+        platforms: normalizedPlatforms,
+      });
+
+      if (!result) {
+        return res.status(400).json({
+          error: "Online research is not configured. Set GEMINI_API_KEY.",
+        });
+      }
+
+      return res.json(result);
+    } catch (error) {
+      console.error("Error running platform research:", error);
+      res.status(500).json({ error: "Failed to run platform research" });
+    }
+  });
+
+  app.post("/api/ai/research/log-sources", async (req, res) => {
+    try {
+      const { vendor, product, description, platforms, aliases, dataComponentIds, dataComponentNames } = req.body || {};
+      const ids = Array.isArray(dataComponentIds)
+        ? dataComponentIds.filter((item: unknown): item is string => typeof item === "string" && item.trim().length > 0)
+        : [];
+      const names = Array.isArray(dataComponentNames)
+        ? dataComponentNames.filter((item: unknown): item is string => typeof item === "string" && item.trim().length > 0)
+        : [];
+      const hints = Array.from(new Set([...ids, ...names]));
+      if (hints.length === 0) {
+        return res.status(400).json({ error: "Select at least one data component to research." });
+      }
+
+      await mitreKnowledgeGraph.ensureInitialized();
+      const resolved = mitreKnowledgeGraph.resolveDataComponentsFromHints(hints);
+      if (resolved.length === 0) {
+        return res.status(400).json({ error: "No matching data components found for the request." });
+      }
+
+      const mutableElementsByName = await getChannelsForDCs(resolved.map((dc) => dc.name));
+
+      const normalizedPlatforms = Array.isArray(platforms)
+        ? normalizePlatformList(platforms.map((item: string) => item.trim()).filter(Boolean))
+        : [];
+
+      const result = await geminiResearchService.enrichLogSources({
+        vendor,
+        product,
+        description,
+        aliases: Array.isArray(aliases) ? aliases : undefined,
+        platforms: normalizedPlatforms,
+        dataComponents: resolved.map((dc) => ({
+          id: dc.id,
+          name: dc.name,
+          dataSourceName: dc.dataSourceName,
+          mutableElements: (mutableElementsByName[dc.name]?.mutableElements || []).map((element) => element.field),
+        })),
+      });
+
+      if (!result) {
+        return res.status(400).json({
+          error: "Online research is not configured. Set GEMINI_API_KEY.",
+        });
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error("Error running research enrichment:", error);
+      res.status(500).json({ error: "Failed to run experimental research" });
     }
   });
 
@@ -972,18 +1307,11 @@ export async function registerRoutes(
   
   // Get hybrid selector options (master list)
   app.get("/api/hybrid-selector/options", async (req, res) => {
-    const options = [
-      { label: "Windows Endpoint", type: "platform", value: "Windows" },
-      { label: "Linux Server/Endpoint", type: "platform", value: "Linux" },
-      { label: "macOS Endpoint", type: "platform", value: "macOS" },
-      { label: "Identity Provider (Azure AD/Okta)", type: "platform", value: "Identity Provider" },
-      { label: "Cloud Infrastructure (AWS/Azure/GCP)", type: "platform", value: "IaaS" },
-      { label: "SaaS Application (M365/Salesforce)", type: "platform", value: "SaaS" },
-      { label: "Container / Kubernetes", type: "platform", value: "Containers" },
-      { label: "Network Devices (Router/Switch/Firewall)", type: "platform", value: "Network" },
-      { label: "Office Suite (M365/Google Workspace)", type: "platform", value: "Office 365" },
-      { label: "ESXi / VMware", type: "platform", value: "ESXi" },
-    ];
+    const options = PLATFORM_VALUES.map((platform) => ({
+      label: platform,
+      type: "platform",
+      value: platform,
+    }));
     res.json(options);
   });
 
@@ -1300,6 +1628,128 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/ai-keys/gemini", async (_req, res) => {
+    try {
+      const records = await db
+        .select({ key: settings.key, value: settings.value, updatedAt: settings.updatedAt })
+        .from(settings)
+        .where(inArray(settings.key, [
+          "gemini_api_key",
+          "gemini_model",
+          "gemini_temperature",
+          "gemini_top_p",
+          "gemini_top_k",
+          "gemini_seed",
+          "gemini_max_output_tokens",
+        ]));
+
+      const recordMap = new Map(records.map((record) => [record.key, record]));
+      const resolveValue = (key: string, envKey: string, defaultValue?: string) => {
+        const record = recordMap.get(key);
+        if (record?.value) {
+          return { value: record.value, source: "database" as const };
+        }
+        const envValue = process.env[envKey];
+        if (envValue) {
+          return { value: envValue, source: "environment" as const };
+        }
+        if (defaultValue !== undefined) {
+          return { value: defaultValue, source: "default" as const };
+        }
+        return { value: null, source: "none" as const };
+      };
+
+      const keyRecord = recordMap.get("gemini_api_key");
+      const modelRecord = recordMap.get("gemini_model");
+      const envKey = process.env.GEMINI_API_KEY;
+      const envModel = process.env.GEMINI_MODEL;
+      const configured = Boolean(keyRecord?.value || envKey);
+      const source = keyRecord?.value ? "database" : envKey ? "environment" : "none";
+      const updatedAt = keyRecord?.value ? keyRecord.updatedAt?.toISOString() : null;
+      const model = modelRecord?.value || envModel || "gemini-1.5-flash";
+      const modelSource = modelRecord?.value ? "database" : envModel ? "environment" : "default";
+
+      const generation = {
+        temperature: resolveValue("gemini_temperature", "GEMINI_TEMPERATURE", "0.1"),
+        topP: resolveValue("gemini_top_p", "GEMINI_TOP_P", "1"),
+        topK: resolveValue("gemini_top_k", "GEMINI_TOP_K", "40"),
+        seed: resolveValue("gemini_seed", "GEMINI_SEED"),
+        maxOutputTokens: resolveValue("gemini_max_output_tokens", "GEMINI_MAX_OUTPUT_TOKENS"),
+      };
+
+      res.json({ configured, source, updatedAt, model, modelSource, generation });
+    } catch (error) {
+      console.error("Error fetching Gemini key status:", error);
+      res.status(500).json({ error: "Failed to fetch Gemini key status" });
+    }
+  });
+
+  app.post("/api/admin/ai-keys/gemini", async (req, res) => {
+    try {
+      const apiKey = typeof req.body?.apiKey === "string" ? req.body.apiKey.trim() : "";
+      const model = typeof req.body?.model === "string" ? req.body.model.trim() : "";
+      const parseNumber = (value: unknown, field: string) => {
+        if (value === undefined || value === null) return undefined;
+        if (typeof value === "string" && value.trim().length === 0) return undefined;
+        const parsed = typeof value === "number" ? value : Number(String(value).trim());
+        if (!Number.isFinite(parsed)) {
+          throw new Error(`Invalid ${field} value`);
+        }
+        return String(parsed);
+      };
+
+      const temperature = parseNumber(req.body?.temperature, "temperature");
+      const topP = parseNumber(req.body?.topP, "topP");
+      const topK = parseNumber(req.body?.topK, "topK");
+      const seed = parseNumber(req.body?.seed, "seed");
+      const maxOutputTokens = parseNumber(req.body?.maxOutputTokens, "maxOutputTokens");
+
+      if (!apiKey && !model && !temperature && !topP && !topK && !seed && !maxOutputTokens) {
+        return res.status(400).json({ error: "Provide apiKey, model, or generation settings to update." });
+      }
+      if (apiKey) {
+        await settingsService.set("gemini_api_key", apiKey);
+      }
+      if (model) {
+        await settingsService.set("gemini_model", model);
+      }
+      if (temperature !== undefined) {
+        await settingsService.set("gemini_temperature", temperature);
+      }
+      if (topP !== undefined) {
+        await settingsService.set("gemini_top_p", topP);
+      }
+      if (topK !== undefined) {
+        await settingsService.set("gemini_top_k", topK);
+      }
+      if (seed !== undefined) {
+        await settingsService.set("gemini_seed", seed);
+      }
+      if (maxOutputTokens !== undefined) {
+        await settingsService.set("gemini_max_output_tokens", maxOutputTokens);
+      }
+      res.json({ status: "ok" });
+    } catch (error) {
+      console.error("Error saving Gemini key:", error);
+      res.status(500).json({ error: "Failed to save Gemini key" });
+    }
+  });
+
+  app.post("/api/admin/ai-keys/gemini/test", async (req, res) => {
+    try {
+      const apiKey = typeof req.body?.apiKey === "string" ? req.body.apiKey.trim() : undefined;
+      const model = typeof req.body?.model === "string" ? req.body.model.trim() : undefined;
+      const result = await geminiMappingService.testKey(apiKey, model);
+      if (!result) {
+        return res.status(400).json({ error: "Gemini API key is not configured." });
+      }
+      res.json(result);
+    } catch (error) {
+      console.error("Error testing Gemini key:", error);
+      res.status(500).json({ error: "Failed to validate Gemini key" });
+    }
+  });
+
   // Refresh Sigma Rules (Smart Git Pull/Clone)
   app.post("/api/admin/maintenance/refresh-sigma", async (req, res) => {
     try {
@@ -1348,6 +1798,29 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error refreshing CTID mappings:", error);
       res.status(500).json({ error: "Failed to refresh CTID mappings" });
+    }
+  });
+
+  app.post("/api/admin/maintenance/rebuild-detections-index", async (_req, res) => {
+    try {
+      const result = await rebuildDetectionsIndex();
+      res.json({
+        message: `Detection index rebuilt with ${result.indexed} entries.`,
+        ...result,
+      });
+    } catch (error) {
+      console.error("Error rebuilding detections index:", error);
+      res.status(500).json({ error: "Failed to rebuild detections index" });
+    }
+  });
+
+  app.post("/api/admin/maintenance/db-push", async (req, res) => {
+    try {
+      const result = await adminService.runDbPush();
+      res.json(result);
+    } catch (error) {
+      console.error("Error running db:push:", error);
+      res.status(500).json({ error: "Failed to run db:push" });
     }
   });
 

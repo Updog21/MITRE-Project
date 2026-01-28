@@ -263,7 +263,7 @@ export class ElasticAdapter implements ResourceAdapter {
     return {
       productId,
       source: 'elastic',
-      confidence: Math.min(100, analytics.length * 8),
+      confidence: 0,
       detectionStrategies: Array.from(techniqueIds).map(t => `DS-${t}`),
       analytics,
       dataComponents: Array.from(new Map(dataComponents.map(dc => [dc.id, dc])).values()),

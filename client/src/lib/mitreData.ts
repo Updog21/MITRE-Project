@@ -1,5 +1,8 @@
 // Import products from dedicated products file (not auto-generated)
 import { ctidProducts, searchProducts as searchProductsFn, getProductById } from './products';
+import { fullMitreTechniques } from './mitreTechniquesFull';
+import { platformMatchesAny } from '@shared/platforms';
+import type { PlatformValue } from '@shared/platforms';
 import type { Asset } from './products';
 
 // Re-export for backwards compatibility
@@ -18,13 +21,15 @@ export interface LogSource {
   channel: string;
 }
 
+export type PlatformLabel = PlatformValue;
+
 export interface DataCollectionMeasure {
-  platform: 'Windows' | 'Linux' | 'macOS' | 'ESXi' | 'Azure AD' | 'Network' | 'Cloud' | 'EDR';
+  platform: PlatformLabel;
   description: string;
 }
 
 export interface PlatformMapping {
-  platform: 'Windows' | 'Linux' | 'macOS' | 'ESXi' | 'Azure AD' | 'Network';
+  platform: PlatformLabel;
   eventSource: string;
   logSourceName: string;
   eventId?: string;
@@ -49,7 +54,7 @@ export interface AnalyticItem {
   description: string;
   pseudocode?: string;
   dataComponents: string[];
-  platforms: string[];
+  platforms: PlatformLabel[];
 }
 
 export interface DetectionStrategy {
@@ -114,8 +119,8 @@ export const dataComponents: Record<string, DataComponentRef> = {
       { platform: 'Windows', description: 'Event ID 5156 – Filtering Platform Connection - Logs network connections permitted by Windows Filtering Platform (WFP). Sysmon Event ID 3 – Network Connection Initiated - Captures process, source/destination IP, ports, and parent process.' },
       { platform: 'Linux', description: 'Netfilter (iptables), nftables logs - Tracks incoming and outgoing network connections. AuditD (connect syscall) - Logs TCP, UDP, and ICMP connections. Zeek (conn.log) - Captures protocol, duration, and bytes transferred.' },
       { platform: 'macOS', description: 'Endpoint Security Framework ES_EVENT_TYPE_NOTIFY_CONNECT - Captures process initiating network connections with full metadata.' },
-      { platform: 'Cloud', description: 'AWS VPC Flow Logs / Azure NSG Flow Logs - Logs IP traffic at the network level in cloud environments.' },
-      { platform: 'EDR', description: 'Detect anomalous network activity such as new C2 connections or data exfiltration attempts.' },
+      { platform: 'IaaS', description: 'AWS VPC Flow Logs / Azure NSG Flow Logs - Logs IP traffic at the network level in cloud environments.' },
+      { platform: 'None', description: 'Detect anomalous network activity such as new C2 connections or data exfiltration attempts.' },
     ],
     logSources: [
       { name: 'WinEventLog:Sysmon', channel: 'EventCode=3, 22' },
@@ -233,7 +238,7 @@ export const dataComponents: Record<string, DataComponentRef> = {
       { platform: 'Windows', eventSource: 'Security', logSourceName: 'WinEventLog:Security', eventId: '4625', logChannel: 'Security', notes: 'Failed logon' },
       { platform: 'Windows', eventSource: 'Security', logSourceName: 'WinEventLog:Security', eventId: '4648', logChannel: 'Security', notes: 'Explicit credential logon' },
       { platform: 'Linux', eventSource: 'PAM', logSourceName: 'pam:auth', logChannel: '/var/log/auth.log or /var/log/secure' },
-      { platform: 'Azure AD', eventSource: 'Sign-in Logs', logSourceName: 'azuread:signin', notes: 'Azure AD sign-in activity' },
+      { platform: 'Identity Provider', eventSource: 'Sign-in Logs', logSourceName: 'azuread:signin', notes: 'Identity provider sign-in activity' },
     ]
   },
   'DC0036': {
@@ -402,7 +407,7 @@ WHERE status = 'failure'
 GROUP BY src_ip, user
 HAVING COUNT(*) > 10`,
         dataComponents: ['DC0001'],
-        platforms: ['Windows', 'Linux', 'Azure AD']
+        platforms: ['Windows', 'Linux', 'Identity Provider']
       },
       {
         id: 'AN0004',
@@ -415,14 +420,14 @@ WHERE status = 'failure'
 GROUP BY src_ip
 HAVING COUNT(DISTINCT user) > 20`,
         dataComponents: ['DC0001'],
-        platforms: ['Windows', 'Azure AD']
+        platforms: ['Windows', 'Identity Provider']
       }
     ],
     dataComponentRefs: ['DC0001']
   }
 ];
 
-export const techniques: Technique[] = [
+const curatedTechniques: Technique[] = [
   { id: 'T1059', name: 'Command and Scripting Interpreter', tactic: 'Execution', description: 'Adversaries may abuse command and script interpreters to execute commands, scripts, or binaries.', usedByGroups: ['APT29', 'APT28', 'Lazarus'], detectionStrategies: ['DET0455'] },
   { id: 'T1059.001', name: 'PowerShell', tactic: 'Execution', description: 'Adversaries may abuse PowerShell commands and scripts for execution.', usedByGroups: ['APT29', 'APT28', 'Lazarus'], detectionStrategies: ['DET0455'] },
   { id: 'T1071', name: 'Application Layer Protocol', tactic: 'Command and Control', description: 'Adversaries may communicate using application layer protocols to avoid detection.', usedByGroups: ['APT29', 'APT28'], detectionStrategies: ['DET0002'] },
@@ -434,6 +439,24 @@ export const techniques: Technique[] = [
   { id: 'T1110.001', name: 'Password Guessing', tactic: 'Credential Access', description: 'Adversaries may guess passwords to attempt access to accounts.', usedByGroups: ['APT28'], detectionStrategies: ['DET0001'] },
   { id: 'T1110.003', name: 'Password Spraying', tactic: 'Credential Access', description: 'Adversaries may use a single password against many accounts.', usedByGroups: ['APT29', 'APT28'], detectionStrategies: ['DET0001'] },
 ];
+
+const fullTechniques: Technique[] = fullMitreTechniques.map((technique) => ({
+  ...technique,
+  usedByGroups: [],
+  detectionStrategies: [],
+}));
+
+const techniqueById = new Map<string, Technique>();
+fullTechniques.forEach((technique) => {
+  techniqueById.set(technique.id.toUpperCase(), technique);
+});
+curatedTechniques.forEach((technique) => {
+  techniqueById.set(technique.id.toUpperCase(), technique);
+});
+
+export const techniques: Technique[] = Array.from(techniqueById.values()).sort((a, b) =>
+  a.id.localeCompare(b.id)
+);
 
 // Note: ctidProducts is now imported from ./products.ts and re-exported at top of file
 
@@ -475,12 +498,8 @@ export function getDetectionStrategiesByTechniques(techniqueIds: string[], platf
     return matchedStrategies;
   }
   
-  const platformLower = platform.toLowerCase();
-  
   return matchedStrategies.map(ds => {
-    const filteredAnalytics = ds.analytics.filter(a => 
-      a.platforms.some(p => p.toLowerCase() === platformLower)
-    );
+    const filteredAnalytics = ds.analytics.filter(a => platformMatchesAny(a.platforms, [platform]));
     
     if (filteredAnalytics.length === 0) return null;
     
@@ -544,8 +563,6 @@ export function getCTIDAnalyticsForTechniques(
   platforms: string[]
 ): CTIDAnalyticMatch[] {
   const matches: CTIDAnalyticMatch[] = [];
-  const normalizedPlatforms = platforms.map(p => p.toLowerCase());
-  
   detectionStrategies.forEach(strategy => {
     const matchedTechniques = strategy.techniques.filter(ctidTech =>
       techniqueIds.some(queryTech => techniqueMatches(queryTech, ctidTech))
@@ -554,12 +571,7 @@ export function getCTIDAnalyticsForTechniques(
     if (matchedTechniques.length === 0) return;
     
     strategy.analytics.forEach(analytic => {
-      const analyticPlatformsLower = analytic.platforms.map(p => p.toLowerCase());
-      const platformMatch = normalizedPlatforms.some(np =>
-        analyticPlatformsLower.some(ap => 
-          ap.includes(np) || np.includes(ap)
-        )
-      );
+      const platformMatch = platformMatchesAny(analytic.platforms, platforms);
       
       if (platformMatch) {
         const dcRefs = analytic.dataComponents

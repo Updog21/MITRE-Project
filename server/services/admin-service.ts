@@ -6,9 +6,9 @@ import { db } from '../db';
 import { dataComponents, detectionStrategies } from '@shared/schema';
 import { settingsService } from './settings-service';
 
-const runGitCommand = (args: string[], cwd: string): Promise<string> => {
+const runCommand = (command: string, args: string[], cwd: string): Promise<{ stdout: string; stderr: string }> => {
   return new Promise((resolve, reject) => {
-    const child = spawn('git', args, { cwd });
+    const child = spawn(command, args, { cwd, env: process.env });
     let stdout = '';
     let stderr = '';
 
@@ -20,13 +20,19 @@ const runGitCommand = (args: string[], cwd: string): Promise<string> => {
     });
     child.on('close', (code) => {
       if (code === 0) {
-        resolve(stdout.trim());
+        resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
       } else {
-        reject(new Error(stderr.trim() || `git ${args.join(' ')} failed`));
+        const errorText = stderr.trim() || `${command} ${args.join(' ')} failed`;
+        reject(new Error(errorText));
       }
     });
     child.on('error', reject);
   });
+};
+
+const runGitCommand = async (args: string[], cwd: string): Promise<string> => {
+  const result = await runCommand('git', args, cwd);
+  return result.stdout.trim();
 };
 
 interface StixObject {
@@ -35,6 +41,9 @@ interface StixObject {
   name?: string;
   description?: string;
   x_mitre_data_source_ref?: string;
+  x_mitre_domains?: string[];
+  revoked?: boolean;
+  x_mitre_deprecated?: boolean;
   external_references?: Array<{
     source_name: string;
     external_id?: string;
@@ -121,6 +130,20 @@ export class AdminService {
     } catch (error) {
       console.error(`[AdminService] Error refreshing ${repoKey} repo:`, error);
       throw new Error(`Failed to refresh ${repoKey} repo: ${(error as Error).message}`);
+    }
+  }
+
+  async runDbPush(): Promise<{ status: string; message: string }> {
+    try {
+      const result = await runCommand('npm', ['run', 'db:push'], process.cwd());
+      const outputLine = result.stdout.split('\n').filter(Boolean).pop();
+      return {
+        status: 'success',
+        message: outputLine || 'Database schema applied successfully.',
+      };
+    } catch (error) {
+      console.error('[AdminService] Error running db:push:', error);
+      throw new Error(`Failed to run db:push: ${(error as Error).message}`);
     }
   }
 
@@ -322,15 +345,21 @@ export class AdminService {
 
       const flattenedComponents = bundle.objects
         .filter(obj => obj.type === 'x-mitre-data-component')
-        .map(obj => ({
-          componentId: obj.id,
-          name: obj.name || 'Unknown',
-          dataSourceId: obj.x_mitre_data_source_ref || null,
-          dataSourceName: obj.x_mitre_data_source_ref
-            ? dataSourceMap.get(obj.x_mitre_data_source_ref) || null
-            : null,
-          description: obj.description || '',
-        }));
+        .map(obj => {
+          const externalId = this.getExternalId(obj);
+          return {
+            componentId: externalId || obj.id,
+            name: obj.name || 'Unknown',
+            dataSourceId: obj.x_mitre_data_source_ref || null,
+            dataSourceName: obj.x_mitre_data_source_ref
+              ? dataSourceMap.get(obj.x_mitre_data_source_ref) || null
+              : null,
+            description: obj.description || '',
+            domains: Array.isArray(obj.x_mitre_domains) ? obj.x_mitre_domains : [],
+            revoked: Boolean(obj.revoked),
+            deprecated: Boolean(obj.x_mitre_deprecated),
+          };
+        });
 
       if (flattenedComponents.length > 0) {
         await db
@@ -341,6 +370,11 @@ export class AdminService {
             set: {
               name: sql`excluded.name`,
               description: sql`excluded.description`,
+              dataSourceId: sql`excluded.data_source_id`,
+              dataSourceName: sql`excluded.data_source_name`,
+              domains: sql`excluded.domains`,
+              revoked: sql`excluded.revoked`,
+              deprecated: sql`excluded.deprecated`,
             },
           });
       }

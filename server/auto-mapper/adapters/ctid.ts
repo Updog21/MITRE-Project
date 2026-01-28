@@ -274,12 +274,10 @@ export class CTIDAdapter implements ResourceAdapter {
       });
     }
 
-    const confidence = Math.min(100, mappings.length * 5);
-
     return {
       productId,
       source: 'ctid',
-      confidence,
+      confidence: 0,
       detectionStrategies: Array.from(techniqueIds).map(t => `DS-${t}`),
       analytics,
       dataComponents: Array.from(dataComponentsMap.values()),

@@ -1,24 +1,13 @@
 import type { DetectionStrategy } from '@/lib/mitreData';
 import type { StixAnalytic, StixDetectionStrategy } from '@/hooks/useAutoMapper';
 import type { SsmCapability } from '@shared/schemas/ssm';
+import { platformMatchesAny } from '@shared/platforms';
 
 type Strategy = DetectionStrategy | StixDetectionStrategy;
 
 function normalizeTechniqueId(value: string): string {
   const match = value.toUpperCase().match(/T\d{4}(?:\.\d{3})?/);
   return match ? match[0] : value.toUpperCase();
-}
-
-function platformMatchesAny(analyticPlatforms: string[], selectedPlatforms: string[]): boolean {
-  if (!analyticPlatforms || analyticPlatforms.length === 0) return true;
-  if (selectedPlatforms.length === 0) return true;
-  const normalizedSelected = selectedPlatforms.map(p => p.toLowerCase());
-  return analyticPlatforms.some(platform => {
-    const platformLower = platform.toLowerCase();
-    return normalizedSelected.some(selected =>
-      platformLower.includes(selected) || selected.includes(platformLower)
-    );
-  });
 }
 
 export function getHybridStrategies(

@@ -26,6 +26,7 @@ import {
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import { runAutoMapper } from '../auto-mapper/service';
 import { deleteProductGraph, syncProductProvidesEdges, upsertProductNode } from '../lib/graph-bridge';
+import { normalizePlatformList } from '../../shared/platforms';
 
 export interface ResolvedSearchTerms {
   canonicalName: string;
@@ -235,8 +236,18 @@ export class ProductService {
     product: InsertProduct,
     options?: { autoMap?: boolean }
   ): Promise<Product> {
+    const normalizedProduct = {
+      ...product,
+      platforms: Array.isArray(product.platforms)
+        ? normalizePlatformList(product.platforms)
+        : [],
+      hybridSelectorValues: Array.isArray(product.hybridSelectorValues)
+        ? normalizePlatformList(product.hybridSelectorValues)
+        : product.hybridSelectorValues,
+    };
+
     const createdProduct = await db.transaction(async (tx) => {
-      const result = await tx.insert(products).values(product).returning();
+      const result = await tx.insert(products).values(normalizedProduct).returning();
       const nextProduct = result[0];
       await upsertProductNode(nextProduct, tx);
       await syncProductProvidesEdges(nextProduct, tx);
@@ -258,9 +269,17 @@ export class ProductService {
    * Update a product
    */
   async updateProduct(productId: string, updates: Partial<InsertProduct>): Promise<Product | null> {
+    const normalizedUpdates: Partial<InsertProduct> = { ...updates };
+    if (Array.isArray(updates.platforms)) {
+      normalizedUpdates.platforms = normalizePlatformList(updates.platforms);
+    }
+    if (Array.isArray(updates.hybridSelectorValues)) {
+      normalizedUpdates.hybridSelectorValues = normalizePlatformList(updates.hybridSelectorValues);
+    }
+
     const updatedProduct = await db.transaction(async (tx) => {
       const result = await tx.update(products)
-        .set(updates)
+        .set(normalizedUpdates)
         .where(eq(products.productId, productId))
         .returning();
       if (!result[0]) return null;

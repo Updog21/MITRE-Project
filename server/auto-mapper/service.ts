@@ -21,7 +21,7 @@ const adapters: Record<ResourceType, ResourceAdapter> = {
   mitre_stix: new MitreStixAdapter(),
 };
 
-const COMMUNITY_RESOURCE_ORDER: ResourceType[] = ['ctid', 'splunk', 'sigma', 'elastic', 'azure'];
+const COMMUNITY_RESOURCE_ORDER: ResourceType[] = ['ctid', 'splunk', 'sigma', 'elastic', 'azure', 'mitre_stix'];
 const AUTO_MAPPER_CONCURRENCY = 2;
 
 const SSM_SOURCE_MAP: Record<ResourceType, string> = {
@@ -80,6 +80,7 @@ export async function runAutoMapper(productId: string): Promise<MappingResult> {
     SSM_SOURCE_MAP.splunk,
     SSM_SOURCE_MAP.elastic,
     SSM_SOURCE_MAP.azure,
+    SSM_SOURCE_MAP.mitre_stix,
     WIZARD_TELEMETRY_SOURCE,
   ];
 
@@ -168,14 +169,21 @@ export async function runAutoMapper(productId: string): Promise<MappingResult> {
             mapped_data_components: mappedDataComponents,
           };
 
+          // Fix: Preserve specific techniques if they exist (prevents dilution)
+          const finalTechniqueIds = hasTechniques 
+            ? analytic.techniqueIds 
+            : Array.from(inferredTechniques);
+
           if (!hasTechniques) {
             inferredMetadata.coverage_type = 'telemetry';
+          } else {
+            inferredMetadata.stream_inferred_techniques = Array.from(inferredTechniques);
           }
 
           return [{
             ...analytic,
             rawSource,
-            techniqueIds: Array.from(inferredTechniques),
+            techniqueIds: finalTechniqueIds,
             streamStatus: 'verified',
             metadata: inferredMetadata,
           }];
@@ -307,6 +315,7 @@ export async function runAutoMapper(productId: string): Promise<MappingResult> {
     for (const platform of targetPlatforms) {
       const relevantRules = analytics.filter(rule =>
         isRuleRelevantToPlatform(rule.platforms, platform)
+        && (rule.techniqueIds || []).length > 0
       );
       if (relevantRules.length === 0) continue;
 

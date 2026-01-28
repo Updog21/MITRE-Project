@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 
 // Interface for AI Providers
 export interface AIProvider {
@@ -18,11 +18,12 @@ export interface ValidationResult {
 
 // Gemini Provider Implementation
 export class GeminiProvider implements AIProvider {
-  private model: any;
+  private client: GoogleGenAI;
+  private modelName: string;
 
-  constructor(apiKey: string) {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    this.model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  constructor(apiKey: string, modelName: string) {
+    this.client = new GoogleGenAI({ apiKey });
+    this.modelName = modelName;
   }
 
   async validateRule(ruleContent: string, context: string = ""): Promise<ValidationResult> {
@@ -55,9 +56,15 @@ export class GeminiProvider implements AIProvider {
     `;
 
     try {
-      const result = await this.model.generateContent(prompt);
-      const response = await result.response;
-      const text = response.text();
+      const response = await this.client.models.generateContent({
+        model: this.modelName,
+        contents: prompt,
+      });
+      const text = typeof (response as any).text === "function"
+        ? await (response as any).text()
+        : typeof (response as any).text === "string"
+          ? (response as any).text
+          : "";
       
       // Basic cleanup to ensure JSON parsing
       const jsonString = text.replace(/```json/g, "").replace(/```/g, "").trim();
@@ -91,15 +98,21 @@ import { settingsService } from "./settings-service";
 
 export class ValidationService {
   private provider: AIProvider | null = null;
+  private providerKey: string | null = null;
+  private providerModel: string | null = null;
 
   async getProvider(): Promise<AIProvider | null> {
-    if (this.provider) return this.provider;
-
     // Check settings for provider preference (future proofing)
     // For now, default to Gemini if key exists
     const geminiKey = await settingsService.getGeminiKey();
+    const geminiModel = (await settingsService.getGeminiModel()).trim();
+    if (this.provider && this.providerKey === geminiKey && this.providerModel === geminiModel) {
+      return this.provider;
+    }
     if (geminiKey) {
-      this.provider = new GeminiProvider(geminiKey);
+      this.provider = new GeminiProvider(geminiKey, geminiModel || "gemini-1.5-flash");
+      this.providerKey = geminiKey;
+      this.providerModel = geminiModel;
       return this.provider;
     }
 

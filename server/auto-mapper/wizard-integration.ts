@@ -167,7 +167,7 @@ export async function deriveAnalyticRequirements(
       logSourcesToLookFor: staticReq?.logSourcesToLookFor || [],
 
       // Platforms from the DC info
-      platforms: dcInfo.derivedPlatforms || [],
+      platforms: dcInfo.platforms || [],
     };
 
     // Merge STIX mutable elements into default list

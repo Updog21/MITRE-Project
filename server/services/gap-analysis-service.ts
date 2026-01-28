@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { db } from "../db";
+import { normalizePlatformList } from "../../shared/platforms";
 
 export interface CoveragePathRow {
   techniqueId: string;
@@ -91,7 +92,7 @@ export async function getCoverageGaps(
   platforms?: string[]
 ): Promise<GapRow[]> {
   const hasProduct = typeof productDbId === 'number';
-  const platformList = (platforms || []).filter(Boolean);
+  const platformList = normalizePlatformList(platforms || []);
 
   if (hasProduct) {
     const platformFilter = platformList.length > 0
